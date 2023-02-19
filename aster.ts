@@ -1,0 +1,244 @@
+console.clear()
+
+const _checkloop = (function() {
+  let n = 0;
+  return (contents?: any) => {if(n++>250) throw contents ?? 'Infinite loop terminated.'}
+})();
+
+namespace ASTER {
+  namespace Util {
+    export function splitGraphemes(text: string) {
+      return Array.from(new Intl.Segmenter("en", {granularity: 'grapheme'}).segment(text), ({segment}) => segment);
+    }
+  }
+  type TokenMatcherCaptures = Map<string, Token[]|null>;
+  export type TokenPattern = { matches(tokens: Token[], data: TokenMatcherCaptures): number }
+  export type SingleTokenPattern = TokenPattern & { matches(tokens: Token[], data: TokenMatcherCaptures): -1|0|1 }
+  export type Tokenizer = {
+    pattern: TokenPattern,
+    recursive?: boolean
+    buildTokens: string | ((matches: Token[], captures: TokenMatcherCaptures)=> Token | Token[])
+  }
+
+  type TokenArgs = {tags?: string | string[], props?: object | Map<string,any>, children?: Token[]}
+  export class Token {
+    private readonly tags: string[];
+    private readonly properties: Map<string,any>;
+    private readonly children?: Token[];
+    constructor(private readonly name: string, {tags = [], props = {}, children = undefined}: TokenArgs = {}) {
+      if(typeof tags === 'string') this.tags = tags.split(/,|\s+/g).filter(x=>x);
+      else this.tags = [...tags];
+
+      if(props instanceof Map) this.properties = props;
+      else this.properties = new Map(Object.entries(props));
+
+      this.children = children;
+    }
+    public getName(): string {
+      return this.name;
+    }
+    public hasTag(tag: string): boolean {
+      return this.tags.includes(tag);
+    }
+    public hasProp(prop: string): boolean {
+      return this.properties.has(prop);
+    }
+    public getProp(prop: string): any {
+      return this.properties.get(prop);
+    }
+    public hasChildren(): boolean {
+      return !!this.children?.length
+    }
+    public getChildren(): Token[] {
+      return this.hasChildren() ? [...this.children!] : [];
+    }
+  }
+  class CharToken extends Token {
+    constructor(private readonly value: string, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+      super('char', {tags, props})
+    }
+    public getValue() {
+      return this.value;
+    }
+  }
+  class SpecialToken extends Token {
+    constructor(name: string, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+      super(name, {tags, props})
+    }
+  }
+  export function tokenize(text: string, tokenizers: Tokenizer[]): Token[] {
+    const tokens = [new SpecialToken('START'), ...Util.splitGraphemes(text).map(value => new CharToken(value)),new SpecialToken('END')];
+
+    function applyTokenizer(tokenizer: Tokenizer): boolean {
+      let applied = false;
+      for(let i = 0; i < tokens.length; i++) {
+        _checkloop();
+        const captures = new Map();
+        const matches = tokenizer.pattern.matches(tokens.slice(i),captures);
+        if(matches !== -1) {
+          const matchedTokens = tokens.slice(i,i+matches);
+          
+          const newTokens = typeof tokenizer.buildTokens === 'string' ? new Token(tokenizer.buildTokens,{children:matchedTokens}) : tokenizer.buildTokens(matchedTokens, captures);
+          tokens.splice(i,matches, ...(Array.isArray(newTokens) ? newTokens : [newTokens]));
+          applied ||= true;
+        }
+      }
+      return applied;
+    }
+
+    for(const tokenizer of tokenizers) {
+      applyTokenizer(tokenizer);
+    }
+
+    const recursiveTokenizers = tokenizers.filter(tokenizer => tokenizer.recursive);
+
+    let mutated;
+    do {
+      _checkloop()
+      mutated = false;
+      for(const tokenizer of recursiveTokenizers) mutated ||= applyTokenizer(tokenizer);
+    } while(mutated);
+
+    return tokens;
+  }
+  export namespace TokenMatchers {
+    function matchSingle(matched: boolean): -1 | 1 {
+      return 1-2*+!matched as (-1 | 1);
+    }
+    export function tk(value: string): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(token.getName() === value)
+        }
+      }
+    }
+    export function char(value: string): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(token instanceof CharToken && token.getValue() === value);
+        }
+      }
+    }
+    export function capture(name: string, matcher: TokenPattern): TokenPattern {
+      return {
+        matches(tokens, captures) {
+          const matches = matcher.matches(tokens, captures);
+          if(matches !== -1) captures.set(name, tokens.slice(0,matches));
+          else captures.set(name, null);
+          return matches;
+        }
+      }
+    }
+    export function wildchar(pattern: '*' | 'ws'|'d' = '*'): SingleTokenPattern {
+      const matches = (function(): (tokens: Token[])=> -1 | 1 {
+        switch(pattern) {
+          case '*': return ([token]) => matchSingle(token instanceof CharToken);
+          case 'ws': return ([token]) => matchSingle(token instanceof CharToken && /^\s$/.test(token?.getValue?.()));
+          case 'd': return ([token]) => matchSingle(token instanceof CharToken && /\d$/.test(token?.getValue?.()));
+          default: throw 'NYI'
+        }
+      })();
+      
+      return {
+        matches
+      }
+    }
+
+    export function seq(...matchers: TokenPattern[]): TokenPattern {
+      return {
+        matches(tokens,data) {
+          let matches = 0;
+          for(let i = 0; i < matchers.length; i++) {
+            const c = matchers[i].matches(tokens.slice(matches),data);
+            if(c !== -1) matches+=c;
+            else return -1;
+          }
+          return matches;
+        }
+      }
+    }
+
+    export function count(matcher: TokenPattern, {min=1,max=-1} = {}): TokenPattern {
+      return {
+        matches(tokens,data) {
+          let numMatches = 0;
+          while(matcher.matches(tokens.slice(numMatches++),data)+1&&(max==-1||numMatches<=max));
+          TODO(`warning, may break if matcher matches more than one token. this one is still wacky`);
+          if(numMatches>min) return numMatches-1;
+          else if(min === 0) return 0;
+          return -1;
+        }
+      }
+    }
+
+    export function or(...matchers: SingleTokenPattern[]): SingleTokenPattern
+    export function or(...matchers: TokenPattern[]): TokenPattern {
+      return {
+        matches(tokens, captures) {
+          for(const matcher of matchers) {
+            const matches = matcher.matches(tokens, captures);
+            if(matches !== -1) return matches;
+          }
+          return -1;
+        }
+      }
+    }
+
+    export function not(matcher: SingleTokenPattern): SingleTokenPattern {
+      return {
+        matches([token], captures) {
+          return matcher.matches([token], captures)*-1 as (-1|1);
+        }
+      }
+    }
+
+    export function hasprop(name: string): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(token?.hasProp?.(name));
+        }
+      }
+    }
+
+    export function propeq(name: string, value: any): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(token?.hasProp?.(name) && token?.getProp?.(name) === value);
+        }
+      }
+    }
+
+    export function is(tag: string): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(token?.hasTag?.(tag));
+        }
+      }
+    }
+
+    export function and(...matchers: SingleTokenPattern[]): SingleTokenPattern
+    export function and(...matchers: TokenPattern[]): TokenPattern {
+      return {
+        matches(tokens, captures) {
+          return Math.min(...matchers.map(matcher=>matcher.matches(tokens, captures)));
+        }
+      }
+    }
+  }
+}
+
+function TODO() {}
+TODO('Add special reference tokens for start and end of input. eg useful for <!DOCTYPE html>')
+const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq} = ASTER.TokenMatchers;
+// tokenizer should track position in origional string for error messages later on
+const tokenizers: ASTER.Tokenizer[] = [
+  //{matcher: seq(char('\\'), capture('value',wildchar())), builder: {build(_,captures) {return {name: 'escapedchar',value:(captures.get('value')![0] as CharToken).value}}}},
+  {pattern: seq(or(char('F'),char('f')),char('a'),char('n'),char('c'),char('y')), buildTokens: 'fancy-kwd'},
+  {pattern: count(char('.'), {min:3,max:5}), buildTokens(tokens) {return new ASTER.Token('ellipses', {props: {count: tokens.length}})}},
+  {pattern: seq(tk('fancy-kwd'),tk('ellipses')),buildTokens: 'fancy-kwd-annnnd?'},
+  {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
+  {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
+  {pattern: /*seq(*/count(seq(char('l'),char('o')))/*,char('l'))*/, buildTokens:'lololol'}//broken
+
+]
+console.log(ASTER.tokenize(String.raw`Fancy... a (oo()) a lolol aaah`, tokenizers))
