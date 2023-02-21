@@ -17,7 +17,7 @@ namespace ASTER {
   export type Tokenizer = {
     pattern: TokenPattern,
     recursive?: boolean
-    buildTokens: string | ((matches: Token[], captures: TokenMatcherCaptures)=> Token | Token[])
+    buildTokens: string | ((matches: Token[], position: {start: number, length: number}, captures: TokenMatcherCaptures)=> Token | Token[])
   }
 
   type TokenArgs = {tags?: string | string[], props?: object | Map<string,any>, children?: Token[]}
@@ -25,7 +25,7 @@ namespace ASTER {
     private readonly tags: string[];
     private readonly properties: Map<string,any>;
     private readonly children?: Token[];
-    constructor(private readonly name: string, {tags = [], props = {}, children = undefined}: TokenArgs = {}) {
+    constructor(private readonly name: string, private readonly position: {start: number, length: number}, {tags = [], props = {}, children = undefined}: TokenArgs = {}) {
       if(typeof tags === 'string') this.tags = tags.split(/,|\s+/g).filter(x=>x);
       else this.tags = [...tags];
 
@@ -52,22 +52,28 @@ namespace ASTER {
     public getChildren(): Token[] {
       return this.hasChildren() ? [...this.children!] : [];
     }
+    public getStart(): number {
+      return this.position.start;
+    }
+    public getLength(): number {
+      return this.position.length;
+    }
   }
   class CharToken extends Token {
-    constructor(private readonly value: string, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
-      super('char', {tags, props})
+    constructor(private readonly value: string, position: {start: number, length: number}, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+      super('char', position, {tags, props})
     }
     public getValue() {
       return this.value;
     }
   }
   class SpecialToken extends Token {
-    constructor(name: string, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
-      super(name, {tags, props})
+    constructor(name: string, position: {start: number, length: number}, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+      super(name, position, {tags, props})
     }
   }
   export function tokenize(text: string, tokenizers: Tokenizer[]): Token[] {
-    const tokens = [new SpecialToken('START'), ...Util.splitGraphemes(text).map(value => new CharToken(value)),new SpecialToken('END')];
+    const tokens = [new SpecialToken('START', {start: -1, length: 0}), ...Util.splitGraphemes(text).map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('END', {start: text.length, length: 0})];
 
     function applyTokenizer(tokenizer: Tokenizer): boolean {
       let applied = false;
@@ -78,7 +84,8 @@ namespace ASTER {
         if(matches !== -1) {
           const matchedTokens = tokens.slice(i,i+matches);
           
-          const newTokens = typeof tokenizer.buildTokens === 'string' ? new Token(tokenizer.buildTokens,{children:matchedTokens}) : tokenizer.buildTokens(matchedTokens, captures);
+          const position = {start: (matchedTokens[0]??tokens[i]).getStart(),length:matchedTokens.reduce((sum,token)=>sum+token.getLength(),0)};
+          const newTokens = typeof tokenizer.buildTokens === 'string' ? new Token(tokenizer.buildTokens,position,{children:matchedTokens}) : tokenizer.buildTokens(matchedTokens, position, captures);
           tokens.splice(i,matches, ...(Array.isArray(newTokens) ? newTokens : [newTokens]));
           applied ||= true;
         }
@@ -234,11 +241,11 @@ const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq} = ASTER.TokenM
 const tokenizers: ASTER.Tokenizer[] = [
   //{matcher: seq(char('\\'), capture('value',wildchar())), builder: {build(_,captures) {return {name: 'escapedchar',value:(captures.get('value')![0] as CharToken).value}}}},
   {pattern: seq(or(char('F'),char('f')),char('a'),char('n'),char('c'),char('y')), buildTokens: 'fancy-kwd'},
-  {pattern: count(char('.'), {min:3,max:5}), buildTokens(tokens) {return new ASTER.Token('ellipses', {props: {count: tokens.length}})}},
+  {pattern: count(char('.'), {min:3,max:5}), buildTokens(tokens,position) {return new ASTER.Token('ellipses', position, {props: {count: tokens.length}})}},
   {pattern: seq(tk('fancy-kwd'),tk('ellipses')),buildTokens: 'fancy-kwd-annnnd?'},
   {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
   {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
   {pattern: /*seq(*/count(seq(char('l'),char('o')))/*,char('l'))*/, buildTokens:'lololol'}//broken
 
 ]
-console.log(ASTER.tokenize(String.raw`Fancy... a (oo()) a lolol aaah`, tokenizers))
+console.log(ASTER.tokenize(String.raw`lolol`, tokenizers))
