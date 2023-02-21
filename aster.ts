@@ -167,11 +167,16 @@ namespace ASTER {
 
     export function count(matcher: TokenPattern, {min=1,max=-1} = {}): TokenPattern {
       return {
-        matches(tokens,data) {
-          let numMatches = 0;
-          while(matcher.matches(tokens.slice(numMatches++),data)+1&&(max==-1||numMatches<=max));
-          TODO(`warning, may break if matcher matches more than one token. this one is still wacky`);
-          if(numMatches>min) return numMatches-1;
+        matches(tokens,captures) {
+          let numCountMatches = 0, matchedTokenCount = 0;
+          while(max === -1 || numCountMatches < max) {
+            const matches = matcher.matches(tokens.slice(matchedTokenCount),captures);
+            if(matches === -1)
+              break;
+            matchedTokenCount+=matches;
+            numCountMatches++
+          }
+          if(numCountMatches>min) return matchedTokenCount;
           else if(min === 0) return 0;
           return -1;
         }
@@ -245,7 +250,7 @@ const tokenizers: ASTER.Tokenizer[] = [
   {pattern: seq(tk('fancy-kwd'),tk('ellipses')),buildTokens: 'fancy-kwd-annnnd?'},
   {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
   {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
-  {pattern: /*seq(*/count(seq(char('l'),char('o')))/*,char('l'))*/, buildTokens:'lololol'}//broken
+  {pattern: seq(count(seq(char('l'),char('o'))),char('l')), buildTokens:'lololol'}//broken
 
 ]
 console.log(ASTER.tokenize(String.raw`lolol`, tokenizers))
