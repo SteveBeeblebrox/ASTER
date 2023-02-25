@@ -236,21 +236,49 @@ namespace ASTER {
         }
       }
     }
+
+    export function re(pattern: string): TokenPattern {
+      return {
+        matches(tokens, captures) {
+          let nextStr = '';
+          for(const token of tokens) {
+            if(token instanceof CharToken)
+              nextStr += token.getValue();
+            else
+              break;
+          }
+          const regex = new RegExp(pattern, 'gud');
+          const matches = regex.exec(nextStr);
+          // @ts-expect-error
+          if(matches?.indices?.[0]?.[0] === 0) {
+            // @ts-expect-error
+            Object.entries(matches.groups ?? {}).forEach(([key,value])=>captures.set(key,Util.splitGraphemes(value).map(c=>new CharToken(c, {start: tokens[0].getStart()+matches.indices.groups[key][0], length: 1}))));
+            return regex.lastIndex;
+          }
+          TODO('compute each character start?')
+          return -1;
+        }
+      }
+    }
   }
 }
 
 function TODO() {}
 TODO('Add special reference tokens for start and end of input. eg useful for <!DOCTYPE html>')
-const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq} = ASTER.TokenMatchers;
+const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq,re} = ASTER.TokenMatchers;
 // tokenizer should track position in origional string for error messages later on
 const tokenizers: ASTER.Tokenizer[] = [
   //{matcher: seq(char('\\'), capture('value',wildchar())), builder: {build(_,captures) {return {name: 'escapedchar',value:(captures.get('value')![0] as CharToken).value}}}},
-  {pattern: seq(or(char('F'),char('f')),char('a'),char('n'),char('c'),char('y')), buildTokens: 'fancy-kwd'},
-  {pattern: count(char('.'), {min:3,max:5}), buildTokens(tokens,position) {return new ASTER.Token('ellipses', position, {props: {count: tokens.length}})}},
-  {pattern: seq(tk('fancy-kwd'),tk('ellipses')),buildTokens: 'fancy-kwd-annnnd?'},
-  {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
-  {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
-  {pattern: seq(count(seq(char('l'),char('o'))),char('l')), buildTokens:'lololol'}//broken
+  // {pattern: seq(or(char('F'),char('f')),char('a'),char('n'),char('c'),char('y')), buildTokens: 'fancy-kwd'},
+  // {pattern: count(char('.'), {min:3,max:5}), buildTokens(tokens,position) {return new ASTER.Token('ellipses', position, {props: {count: tokens.length}})}},
+  // {pattern: seq(tk('fancy-kwd'),tk('ellipses')),buildTokens: 'fancy-kwd-annnnd?'},
+  // {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
+  // {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
+  // {pattern: seq(count(seq(char('l'),char('o'))),char('l')), buildTokens:'lololol'}//broken
+  {pattern: re('[fF](?<v>a)ncy'), buildTokens(tokens,position,captures) {
+    console.log(captures)
+    return new ASTER.Token('foo', position);
+  }}
 
 ]
-console.log(ASTER.tokenize(String.raw`lolol`, tokenizers))
+console.log(ASTER.tokenize(String.raw`fancy fancy`, tokenizers))
