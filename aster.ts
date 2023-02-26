@@ -7,6 +7,7 @@ const _checkloop = (function() {
 
 namespace ASTER {
   namespace Util {
+    TODO('Split on code points not graphemes since re doesn\'t like those. use [...str]')
     export function splitGraphemes(text: string) {
       return Array.from(new Intl.Segmenter("en", {granularity: 'grapheme'}).segment(text), ({segment}) => segment);
     }
@@ -69,11 +70,11 @@ namespace ASTER {
   }
   class SpecialToken extends Token {
     constructor(name: string, position: {start: number, length: number}, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
-      super(name, position, {tags, props})
+      super('aster:'+name, position, {tags, props})
     }
   }
   export function tokenize(text: string, tokenizers: Tokenizer[]): Token[] {
-    const tokens = [new SpecialToken('START', {start: -1, length: 0}), ...Util.splitGraphemes(text).map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('END', {start: text.length, length: 0})];
+    const tokens = [new SpecialToken('start', {start: -1, length: 0}), ...Util.splitGraphemes(text).map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('eof', {start: text.length, length: 0})];
 
     function applyTokenizer(tokenizer: Tokenizer): boolean {
       let applied = false;
@@ -255,8 +256,14 @@ namespace ASTER {
             Object.entries(matches.groups ?? {}).forEach(([key,value])=>captures.set(key,Util.splitGraphemes(value).map(c=>new CharToken(c, {start: tokens[0].getStart()+matches.indices.groups[key][0], length: 1}))));
             return regex.lastIndex;
           }
-          TODO('compute each character start?')
           return -1;
+        }
+      }
+    }
+    export function lambda(f: (token:Token)=>boolean): SingleTokenPattern {
+      return {
+        matches([token]) {
+          return matchSingle(f(token));
         }
       }
     }
@@ -264,8 +271,9 @@ namespace ASTER {
 }
 
 function TODO() {}
-TODO('Add special reference tokens for start and end of input. eg useful for <!DOCTYPE html>')
+TODO('Pass previous tokens to matchers for look behind')
 const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq,re} = ASTER.TokenMatchers;
+const raw = String.raw;
 // tokenizer should track position in origional string for error messages later on
 const tokenizers: ASTER.Tokenizer[] = [
   //{matcher: seq(char('\\'), capture('value',wildchar())), builder: {build(_,captures) {return {name: 'escapedchar',value:(captures.get('value')![0] as CharToken).value}}}},
@@ -275,10 +283,11 @@ const tokenizers: ASTER.Tokenizer[] = [
   // {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
   // {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
   // {pattern: seq(count(seq(char('l'),char('o'))),char('l')), buildTokens:'lololol'}//broken
-  {pattern: re('[fF](?<v>a)ncy'), buildTokens(tokens,position,captures) {
-    console.log(captures)
+  {pattern: re(raw `\s+`), buildTokens: 'aster:boundry'},
+  {pattern: seq(or(tk('aster:boundry'),tk('aster:start')),re('[fF](?<v>a)ncy')), buildTokens(tokens,position,captures) {
+    //console.log(captures)
     return new ASTER.Token('foo', position);
   }}
 
 ]
-console.log(ASTER.tokenize(String.raw`fancy fancy`, tokenizers))
+console.log(ASTER.tokenize(String.raw`fancy notfancy`, tokenizers))
