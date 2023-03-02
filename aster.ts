@@ -7,14 +7,14 @@ const _checkloop = (function() {
 
 namespace ASTER {
   namespace Util {
-    TODO('Split on code points not graphemes since re doesn\'t like those. use [...str]')
     export function splitGraphemes(text: string) {
       return Array.from(new Intl.Segmenter("en", {granularity: 'grapheme'}).segment(text), ({segment}) => segment);
     }
   }
   type TokenMatcherCaptures = Map<string, Token[]|null>;
-  export type TokenPattern = { matches(tokens: Token[], data: TokenMatcherCaptures): number }
-  export type SingleTokenPattern = TokenPattern & { matches(tokens: Token[], data: TokenMatcherCaptures): -1|0|1 }
+  export type TokenPattern = { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): number }
+  export type SingleTokenPattern = TokenPattern & { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): -1|0|1 }
+  export type NonConsumingTokenPattern = TokenPattern & { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): -1|0 }
   export type Tokenizer = {
     pattern: TokenPattern,
     recursive?: boolean
@@ -74,17 +74,17 @@ namespace ASTER {
     }
   }
   export function tokenize(text: string, tokenizers: Tokenizer[]): Token[] {
-    const tokens = [new SpecialToken('start', {start: -1, length: 0}), ...Util.splitGraphemes(text).map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('eof', {start: text.length, length: 0})];
+    // Split code points
+    const tokens = [new SpecialToken('start', {start: -1, length: 0}), ...[...text].map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('eof', {start: text.length, length: 0})];
 
     function applyTokenizer(tokenizer: Tokenizer): boolean {
       let applied = false;
       for(let i = 0; i < tokens.length; i++) {
-        _checkloop();
+        _checkloop('Infinite loop applying tokenizer');
         const captures = new Map();
-        const matches = tokenizer.pattern.matches(tokens.slice(i),captures);
+        const matches = tokenizer.pattern.matches(tokens.slice(i),captures,tokens.slice(0,i));
         if(matches !== -1) {
           const matchedTokens = tokens.slice(i,i+matches);
-          
           const position = {start: (matchedTokens[0]??tokens[i]).getStart(),length:matchedTokens.reduce((sum,token)=>sum+token.getLength(),0)};
           const newTokens = typeof tokenizer.buildTokens === 'string' ? new Token(tokenizer.buildTokens,position,{children:matchedTokens}) : tokenizer.buildTokens(matchedTokens, position, captures);
           tokens.splice(i,matches, ...(Array.isArray(newTokens) ? newTokens : [newTokens]));
@@ -129,8 +129,8 @@ namespace ASTER {
     }
     export function capture(name: string, matcher: TokenPattern): TokenPattern {
       return {
-        matches(tokens, captures) {
-          const matches = matcher.matches(tokens, captures);
+        matches(tokens, captures, previousTokens) {
+          const matches = matcher.matches(tokens, captures, previousTokens);
           if(matches !== -1) captures.set(name, tokens.slice(0,matches));
           else captures.set(name, null);
           return matches;
@@ -154,10 +154,10 @@ namespace ASTER {
 
     export function seq(...matchers: TokenPattern[]): TokenPattern {
       return {
-        matches(tokens,data) {
+        matches(tokens,captures,previousTokens) {
           let matches = 0;
           for(let i = 0; i < matchers.length; i++) {
-            const c = matchers[i].matches(tokens.slice(matches),data);
+            const c = matchers[i].matches(tokens.slice(matches),captures,[...previousTokens, ...tokens.slice(0, matches)]);
             if(c !== -1) matches+=c;
             else return -1;
           }
@@ -168,10 +168,10 @@ namespace ASTER {
 
     export function count(matcher: TokenPattern, {min=1,max=-1} = {}): TokenPattern {
       return {
-        matches(tokens,captures) {
+        matches(tokens,captures,previousTokens) {
           let numCountMatches = 0, matchedTokenCount = 0;
           while(max === -1 || numCountMatches < max) {
-            const matches = matcher.matches(tokens.slice(matchedTokenCount),captures);
+            const matches = matcher.matches(tokens.slice(matchedTokenCount),captures,[...previousTokens, ...tokens.slice(0, matchedTokenCount)]);
             if(matches === -1)
               break;
             matchedTokenCount+=matches;
@@ -187,9 +187,9 @@ namespace ASTER {
     export function or(...matchers: SingleTokenPattern[]): SingleTokenPattern
     export function or(...matchers: TokenPattern[]): TokenPattern {
       return {
-        matches(tokens, captures) {
+        matches(tokens, captures, previousTokens) {
           for(const matcher of matchers) {
-            const matches = matcher.matches(tokens, captures);
+            const matches = matcher.matches(tokens, captures, previousTokens);
             if(matches !== -1) return matches;
           }
           return -1;
@@ -199,8 +199,9 @@ namespace ASTER {
 
     export function not(matcher: SingleTokenPattern): SingleTokenPattern {
       return {
-        matches([token], captures) {
-          return matcher.matches([token], captures)*-1 as (-1|1);
+        matches([token], captures, previousTokens) {
+          const i = matcher.matches([token], captures, previousTokens)
+          return i*-1 + -1*+!i as (-1|0|1);
         }
       }
     }
@@ -229,18 +230,19 @@ namespace ASTER {
       }
     }
 
+    export function and(...matchers: TokenPattern[]): TokenPattern
     export function and(...matchers: SingleTokenPattern[]): SingleTokenPattern
     export function and(...matchers: TokenPattern[]): TokenPattern {
       return {
-        matches(tokens, captures) {
-          return Math.min(...matchers.map(matcher=>matcher.matches(tokens, captures)));
+        matches(tokens, captures, previousTokens) {
+          return Math.min(...matchers.map(matcher=>matcher.matches(tokens, captures, previousTokens)));
         }
       }
     }
 
-    export function re(pattern: string): TokenPattern {
+    export function re(pattern: string, {ignoreCase = false} = {}): TokenPattern {
       return {
-        matches(tokens, captures) {
+        matches(tokens, captures, previousTokens) {
           let nextStr = '';
           for(const token of tokens) {
             if(token instanceof CharToken)
@@ -248,10 +250,21 @@ namespace ASTER {
             else
               break;
           }
-          const regex = new RegExp(pattern, 'gud');
+          let startOffset = 0;
+          for(const token of previousTokens.reverse()) {
+            if(token instanceof CharToken) {
+              nextStr = token.getValue() + nextStr;
+              startOffset++;
+            } else {
+              break;
+            }
+          }
+          const regex = new RegExp(pattern, 'gud' + 'i'.repeat(+ignoreCase));
+          regex.lastIndex = startOffset;
           const matches = regex.exec(nextStr);
+          console.log(nextStr, regex.lastIndex)
           // @ts-expect-error
-          if(matches?.indices?.[0]?.[0] === 0) {
+          if(matches?.indices?.[0]?.[0] === startOffset) {
             // @ts-expect-error
             Object.entries(matches.groups ?? {}).forEach(([key,value])=>captures.set(key,Util.splitGraphemes(value).map(c=>new CharToken(c, {start: tokens[0].getStart()+matches.indices.groups[key][0], length: 1}))));
             return regex.lastIndex;
@@ -267,12 +280,25 @@ namespace ASTER {
         }
       }
     }
+    export function next(matcher: TokenPattern): NonConsumingTokenPattern {
+      return {
+        matches(tokens, captures, previousTokens) {
+          return matcher.matches(tokens, captures, previousTokens) >= 0 ? 0 : -1;
+        }
+      }
+    }
+    export function prev(matcher: TokenPattern): NonConsumingTokenPattern {
+      return {
+        matches(tokens, captures, previousTokens) {
+          return matcher.matches(previousTokens.reverse(), captures, []) >= 0 ? 0 : -1;
+        }
+      }
+    }
   }
 }
 
 function TODO() {}
-TODO('Pass previous tokens to matchers for look behind')
-const {seq, char,capture,wildchar,count,tk,or,not,hasprop,propeq,re} = ASTER.TokenMatchers;
+const {seq, char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re} = ASTER.TokenMatchers;
 const raw = String.raw;
 // tokenizer should track position in origional string for error messages later on
 const tokenizers: ASTER.Tokenizer[] = [
@@ -283,11 +309,12 @@ const tokenizers: ASTER.Tokenizer[] = [
   // {pattern: seq(char('('),count(not(or(char('('),char(')'))),{min:0}),char(')')), buildTokens: 'block', recursive: true},
   // {pattern: seq(count(char('a')),char('h')), buildTokens: 'shout'},
   // {pattern: seq(count(seq(char('l'),char('o'))),char('l')), buildTokens:'lololol'}//broken
-  {pattern: re(raw `\s+`), buildTokens: 'aster:boundry'},
-  {pattern: seq(or(tk('aster:boundry'),tk('aster:start')),re('[fF](?<v>a)ncy')), buildTokens(tokens,position,captures) {
-    //console.log(captures)
-    return new ASTER.Token('foo', position);
-  }}
-
+  // {pattern: re(raw `\s+`), buildTokens: 'aster:boundry'},
+  // {pattern: seq(or(tk('aster:boundry'),tk('aster:start')),re('[fF](?<v>a)ncy')), buildTokens(tokens,position,captures) {
+  //   //console.log(captures)
+  //   return new ASTER.Token('foo', position);
+  // }}
+  //{pattern: seq(prev(char(' ')), re('fancy', {ignoreCase: true})), buildTokens: 'fancy-kwd'}
+  {pattern: re('(?<= )fancy', {ignoreCase: true}), buildTokens: 'fancy-kwd'}
 ]
-console.log(ASTER.tokenize(String.raw`fancy notfancy`, tokenizers))
+console.log(ASTER.tokenize(String.raw`afoo fancy`, tokenizers))
