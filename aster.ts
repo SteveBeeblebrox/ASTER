@@ -12,13 +12,14 @@ namespace ASTER {
     }
   }
   type TokenMatcherCaptures = Map<string, Token[]|null>;
+  export type TokenPosition = {start: number, length: number};
   export type TokenPattern = { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): number }
   export type SingleTokenPattern = TokenPattern & { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): -1|0|1 }
   export type NonConsumingTokenPattern = TokenPattern & { matches(tokens: Token[], captures: TokenMatcherCaptures, previosTokens: Token[]): -1|0 }
   export type Tokenizer = {
     pattern: TokenPattern,
     recursive?: boolean
-    buildTokens: string | ((matches: Token[], position: {start: number, length: number}, captures: TokenMatcherCaptures)=> Token | Token[])
+    buildTokens: string | ((matches: Token[], position: TokenPosition, captures: TokenMatcherCaptures)=> Token | Token[])
   }
 
   type TokenArgs = {tags?: string | string[], props?: object | Map<string,any>, children?: Token[]}
@@ -26,7 +27,7 @@ namespace ASTER {
     private readonly tags: string[];
     private readonly properties: Map<string,any>;
     private readonly children?: Token[];
-    constructor(private readonly name: string, private readonly position: {start: number, length: number}, {tags = [], props = {}, children = undefined}: TokenArgs = {}) {
+    constructor(private readonly name: string, private readonly position: TokenPosition, {tags = [], props = {}, children = undefined}: TokenArgs = {}) {
       if(typeof tags === 'string') this.tags = tags.split(/,|\s+/g).filter(x=>x);
       else this.tags = [...tags];
 
@@ -61,7 +62,7 @@ namespace ASTER {
     }
   }
   class CharToken extends Token {
-    constructor(private readonly value: string, position: {start: number, length: number}, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+    constructor(private readonly value: string, position: TokenPosition, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
       super('char', position, {tags, props})
     }
     public getValue() {
@@ -69,7 +70,7 @@ namespace ASTER {
     }
   }
   class SpecialToken extends Token {
-    constructor(name: string, position: {start: number, length: number}, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
+    constructor(name: string, position: TokenPosition, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
       super('aster:'+name, position, {tags, props})
     }
   }
@@ -297,7 +298,6 @@ namespace ASTER {
   }
 }
 
-function TODO() {}
 const {seq, char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re} = ASTER.TokenMatchers;
 const raw = String.raw;
 // tokenizer should track position in origional string for error messages later on
@@ -318,3 +318,34 @@ const tokenizers: ASTER.Tokenizer[] = [
   {pattern: re('(?<= )fancy', {ignoreCase: true}), buildTokens: 'fancy-kwd'}
 ]
 console.log(ASTER.tokenize(String.raw`afoo fancy`, tokenizers))
+
+
+namespace SHML {
+    type Captures = Map<string, ASTER.Token[]|null>;
+    type DetailBuilderFunction<T> = (matches: ASTER.Token[], captures: Captures, position: ASTER.TokenPosition)=>T
+    export class TransformToken extends ASTER.Token {
+        public readonly captures: Captures;
+        public readonly matches: ASTER.Token[]
+        private constructor(name: string, data: {tags?: string | string[], props?: Map<string,any>, children?: ASTER.Token[], captures: Captures, matches: ASTER.Token[], position: ASTER.TokenPosition}, public readonly toHTML: (this: TransformToken)=>Node, public readonly toString: (this: TransformToken)=>string) {
+            super('shml:'+name,data.position,data);
+            this.captures = data.captures;
+            this.matches = data.matches;
+        }
+
+        static create(name: string, pattern: ASTER.TokenPattern, {toString=()=>'', toHTML=()=>new Text('')}: {toString?: ()=>string, toHTML?: ()=>Node} = {}, {tags=()=>[],props=()=>new Map()}: {tags?: string | DetailBuilderFunction<string[]|string>,props?: object | Map<string,any> | DetailBuilderFunction<Map<string,any>>} = {}) {
+            return {
+                pattern,
+                buildTokens(matches: ASTER.Token[], position: ASTER.TokenPosition, captures: Captures): ASTER.Token | ASTER.Token[] {
+                    return new TransformToken(name, {position, matches, captures, tags: typeof tags === 'string' ? tags : tags(matches, captures, position), props: props instanceof Map ? props : typeof props === 'object' ? new Map(Object.entries(props)) : props(matches, captures, position)}, toHTML, toString)
+                }
+            }
+        }
+    }
+}
+
+// todo improve recursive moving down. for HTML, return Text instead of strings to prevent xss. check if not TransformToken if is Char then do the Text else throw error, something didn't match right
+SHML.TransformToken.create('italic', seq(char('*'), capture('CONTENTS', count(not(char('*')))), char('*')), {
+    toHTML(this: SHML.TransformToken) {
+        return Object.assign(document.createElement('em'), {children: this.captures.get('CONTENTS')!.map(o=>o instanceof SHML.TransformToken ? o.toHTML() : o.toString())
+    }
+) }}, {tags: 'inline'})
