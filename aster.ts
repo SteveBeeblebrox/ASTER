@@ -323,6 +323,7 @@ function LogicToken(name: string) {
         return new ASTER.Token(name, position, {children: matches, props: captures, tags: 'logic'});
     }
 }
+
 console.log(ASTER.tokenize(raw`
 #foo&&#bar&& #wow
 `, [
@@ -373,8 +374,9 @@ console.log(ASTER.tokenize(raw`
     // \<\<#logic
     {pattern: seq(char('<'), char('<'), is('logic')), buildTokens: LogicToken('asterlang:prev'), recursive: true},
 
-    // \[ /[a-z0-9_]+/i \= /[a-z0-9_-]+/i \]
-    {pattern: seq(char('['), IDENT, char('='), re(raw`[a-z0-9_-]+`, {ignoreCase: true}), char(']')), buildTokens: LogicToken('asterlang:propeq')}, // [prop=value]
+    // \[ /[a-z0-9_]+/i \= (@string || $..) \]
+    //@ts-expect-error
+    {pattern: seq(char('['), IDENT, char('='), or(tk('asterlang:string'), count(wildchar('d'))), char(']')), buildTokens: LogicToken('asterlang:propeq')}, // [prop=value]
     // \[ /[a-z0-9_]+/i \]
     {pattern: seq(char('['), IDENT, char(']')), buildTokens: 'asterlang:hasprop'}, // [prop]
 
