@@ -2,7 +2,7 @@ console.clear()
 
 const _checkloop = (function() {
   let n = 0;
-  return (contents?: any) => {if(n++>250) throw contents ?? 'Infinite loop terminated.'}
+  return (contents?: any) => {if(n++>550) throw contents ?? 'Infinite loop terminated.'}
 })();
 
 namespace ASTER {
@@ -263,12 +263,12 @@ namespace ASTER {
           const regex = new RegExp(pattern, 'gud' + 'i'.repeat(+ignoreCase));
           regex.lastIndex = startOffset;
           const matches = regex.exec(nextStr);
-          console.log(nextStr, regex.lastIndex)
+          //console.log(nextStr, regex.lastIndex)
           // @ts-expect-error
           if(matches?.indices?.[0]?.[0] === startOffset) {
             // @ts-expect-error
-            Object.entries(matches.groups ?? {}).forEach(([key,value])=>captures.set(key,Util.splitGraphemes(value).map(c=>new CharToken(c, {start: tokens[0].getStart()+matches.indices.groups[key][0], length: 1}))));
-            return regex.lastIndex;
+            Object.entries(matches.groups ?? {}).forEach(([key,value])=>captures.set(key,[...value].map(c=>new CharToken(c, {start: tokens[0].getStart()+matches.indices.groups[key][0], length: 1}))));
+            return regex.lastIndex - startOffset;
           }
           return -1;
         }
@@ -298,8 +298,80 @@ namespace ASTER {
   }
 }
 
-const {seq, char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re} = ASTER.TokenMatchers;
+const {seq, char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re,is,lambda} = ASTER.TokenMatchers;
+//seq a + b + c
+//char
+//capture (?<name>...)
+//wildchar
+//count
+//tk
+//or
+//and
+//prev
+//next
+//not
+//hasprop
+//propeq
+//re
+
+
 const raw = String.raw;
+const WS = count(wildchar('ws'))
+const IDENT = re(raw`[a-z0-9_]+`, {ignoreCase: true})
+function LogicToken(name: string) {
+    return function(matches: ASTER.Token[] | undefined, position: ASTER.TokenPosition, captures: Map<string, ASTER.Token[] | null>) {
+        return new ASTER.Token(name, position, {children: matches, props: captures, tags: 'logic'});
+    }
+}
+console.log(ASTER.tokenize(raw`
+#foo&&#bar
+`, [
+    // \( #logic \)
+    {pattern: seq(char('('), is('logic'), char(')')), buildTokens: LogicToken('asterlang:group'), recursive: true}, // (pattern)
+
+    // 
+    {pattern: seq(is('logic'), count(is('logic'))), buildTokens: LogicToken('asterlang:seq'), recursive: true}, // pattern1 pattern2
+
+    // \\*
+    {pattern: seq(char('\\'), wildchar()), buildTokens: LogicToken('asterlang:char')}, // \c
+    // \*
+    {pattern: char('*'), buildTokens: LogicToken('asterlang:wildchar-any')}, // *
+    // \$
+    {pattern: char('$'), buildTokens: LogicToken('asterlang:wildchar-digit')}, // $
+
+    // /[a-z0-9_]+/i \: #logic
+    {pattern: seq(IDENT, char(':'), is('logic')), buildTokens: LogicToken('asterlang:capture'), recursive: true}, //name: pattern
+
+    // #logic $.. \.\. $..
+    {pattern: seq(is('logic'), count(wildchar('d'), {min: 0}), char('.'), char('.'), count(wildchar('d'), {min: 0})), buildTokens: LogicToken('asterlang:count'), recursive: true}, // #logic 3..5
+
+    // \@/[a-z_]+/
+    {pattern: seq(char('@'), IDENT), buildTokens: LogicToken('asterlang:tk')}, // @name
+    // \#/[a-z_]+/
+    {pattern: seq(char('#'), IDENT), buildTokens: LogicToken('asterlang:is')}, // #tag
+
+    // \!#logic
+    {pattern: seq(char('!'), is('logic')), buildTokens: LogicToken('asterlang:not'), recursive: true}, // !pattern
+
+    // #logic \|\| #logic
+    {pattern: seq(is('logic'), char('|'), char('|'), is('logic')), buildTokens: LogicToken('asterlang:or'), recursive: true},// LHS || RHS
+    // #logic \&\& #logic
+    {pattern: seq(is('logic'), char('&'), char('&'), is('logic')), buildTokens: LogicToken('asterlang:and'), recursive: true},// LHS && RHS
+
+    // \>\>#logic
+    {pattern: seq(char('>'), char('>'), is('logic')), buildTokens: LogicToken('asterlang:next'), recursive: true},
+    // \<\<#logic
+    {pattern: seq(char('<'), char('<'), is('logic')), buildTokens: LogicToken('asterlang:prev'), recursive: true},
+
+    // \[ /[a-z0-9_]+/i \= /[a-z0-9_-]+/i \]
+    {pattern: seq(char('['), IDENT, char('='), re(raw`[a-z0-9_-]+`, {ignoreCase: true}), char(']')), buildTokens: LogicToken('asterlang:propeq')}, // [prop=value]
+    // \[ /[a-z0-9_]+/i \]
+    {pattern: seq(char('['), IDENT, char(']')), buildTokens: 'asterlang:hasprop'}, // [prop]
+
+    // \/ *.. <<!\\ \/ \i..1
+    {pattern: seq(char('/'), count(wildchar()), prev(not(char('\\'))), char('/'), count(char('i'), {min: 0, max: 1})), buildTokens: LogicToken('asterlang:re')} // /pattern/i
+
+]))
 // tokenizer should track position in origional string for error messages later on
 const tokenizers: ASTER.Tokenizer[] = [
   //{matcher: seq(char('\\'), capture('value',wildchar())), builder: {build(_,captures) {return {name: 'escapedchar',value:(captures.get('value')![0] as CharToken).value}}}},
@@ -317,7 +389,7 @@ const tokenizers: ASTER.Tokenizer[] = [
   //{pattern: seq(prev(char(' ')), re('fancy', {ignoreCase: true})), buildTokens: 'fancy-kwd'}
   {pattern: re('(?<= )fancy', {ignoreCase: true}), buildTokens: 'fancy-kwd'}
 ]
-console.log(ASTER.tokenize(String.raw`afoo fancy`, tokenizers))
+//console.log(ASTER.tokenize(String.raw`afoo fancy`, tokenizers))
 
 
 namespace SHML {
