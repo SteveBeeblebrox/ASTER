@@ -61,7 +61,7 @@ namespace ASTER {
       return this.position.length;
     }
   }
-  class CharToken extends Token {
+  export class CharToken extends Token {
     constructor(private readonly value: string, position: TokenPosition, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
       super('char', position, {tags, props})
     }
@@ -324,8 +324,18 @@ function LogicToken(name: string) {
     }
 }
 console.log(ASTER.tokenize(raw`
-#foo&&#bar
+#foo&&#bar&& #wow
 `, [
+    // \\\"
+    {pattern: seq(char('\\'), char('"')), buildTokens: 'asterlang:escaped-quote'},
+    // \" *0.. \"
+    {pattern: seq(char('"'), count(wildchar(),{min:0}), char('"')), buildTokens: 'asterlang:string'},
+
+    // @asterlang:escaped-quote
+    {pattern: tk('escaped-quote'), buildTokens: (_,position) => new ASTER.CharToken('"', position)},
+
+    {pattern: wildchar('ws'), buildTokens: ()=>[]},
+
     // \( #logic \)
     {pattern: seq(char('('), is('logic'), char(')')), buildTokens: LogicToken('asterlang:group'), recursive: true}, // (pattern)
 
