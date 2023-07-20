@@ -1,3 +1,4 @@
+// re should be higher up and match any not /. It should deal with text not tokens
 const _checkloop = (function() {
   let n = 0;
   return (contents?: any) => {if(n++>15550) throw contents ?? 'Infinite loop terminated.'}
