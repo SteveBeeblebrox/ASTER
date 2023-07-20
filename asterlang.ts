@@ -1,7 +1,6 @@
-// re should be higher up and match any not /. It should deal with text not tokens
 const _checkloop = (function() {
   let n = 0;
-  return (contents?: any) => {if(n++>15550) throw contents ?? 'Infinite loop terminated.'}
+  return (contents?: any) => {if(n++>15550) throw new Error(contents ?? 'Infinite loop terminated.')}
 })();
 
 namespace ASTER {
@@ -146,11 +145,11 @@ namespace ASTER {
         }
       }
     }
-    export function wildchar(pattern: '*' | 'ws' | '$' = '*'): SingleTokenPattern {
+    export function wildchar(pattern: '*' | '~' | '$' = '*'): SingleTokenPattern {
       const matches = (function(): (tokens: Token[])=> -1 | 1 {
         switch(pattern) {
           case '*': return ([token]) => matchSingle(token instanceof CharToken);
-          case 'ws': return ([token]) => matchSingle(token instanceof CharToken && /^\s$/.test(token?.getValue?.()));
+          case '~': return ([token]) => matchSingle(token instanceof CharToken && /^\s$/.test(token?.getValue?.()));
           case '$': return ([token]) => matchSingle(token instanceof CharToken && /\d$/.test(token?.getValue?.()));
           default: throw 'NYI'
         }
@@ -158,13 +157,6 @@ namespace ASTER {
       
       return {
         matches
-      }
-    }
-    export function wildtk(): SingleTokenPattern {
-        return {
-        matches([token]) {
-          return matchSingle(!!token)
-        }
       }
     }
 
@@ -226,6 +218,7 @@ namespace ASTER {
     export function not(matcher: SingleTokenPattern): SingleTokenPattern {
       return {
         matches([token], captures, previousTokens) {
+          if(!token) return -1;
           const i = matcher.matches([token], captures, previousTokens)
           return i*-1 + -1*+!i as (-1|0|1);
         }
@@ -323,7 +316,7 @@ namespace ASTER {
 }
 
 namespace ASTERLang {
-    const {seq,char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re,is,lambda,any,optional,wildtk} = ASTER.TokenMatchers;
+    const {seq,char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re,is,lambda,any,optional} = ASTER.TokenMatchers;
     const IDENT = re(String.raw`(?:[a-z][a-z0-9_\-]*:)?[a-z][a-z0-9_\-]*`, {ignoreCase: true})
     type LogicTokenReducer = (t: LogicToken) => ASTER.TokenPattern;
     class LogicToken extends ASTER.Token {
@@ -337,6 +330,21 @@ namespace ASTERLang {
         }
         reduce(): ASTER.TokenPattern {
             return this.reducer(this);
+        }
+    }
+
+    class EscapedToken extends ASTER.Token {
+        private constructor(name: string, position: ASTER.TokenPosition, args: ASTER.TokenArgs) {
+            super(name, position, args);
+        }
+        static of(name: string) {
+            return function(matches: ASTER.Token[] | undefined, position: ASTER.TokenPosition, captures: Map<string, ASTER.Token[] | null>) {
+                return new EscapedToken(name, position, {children: matches, props: captures, tags: 'escaped'});
+            }
+        }
+
+        getRawValue(): string {
+            return this.getChildren()[1].getRawValue();
         }
     }
 
@@ -354,19 +362,51 @@ namespace ASTERLang {
     }
     const GRAMMAR: ASTER.Tokenizer[] = [
         // \\\\
-        {pattern: seq(char('\\'), char('\\')), result: 'asterlang:escaped-escape'},
-
+        {pattern: seq(char('\\'), char('\\')), result: EscapedToken.of('asterlang:escaped-escape')}, // \\
         // \\\"
-        {pattern: seq(char('\\'), char('"')), result: 'asterlang:escaped-quote'},
+        {pattern: seq(char('\\'), char('"')), result: EscapedToken.of('asterlang:escaped-quote')}, // \"
+        // \\\/
+        {pattern: seq(char('\\'), char('/')), result: EscapedToken.of('asterlang:escaped-slash')}, // \/
+        // \\\~
+        {pattern: seq(char('\\'), wildchar('~')), result: EscapedToken.of('asterlang:escaped-ws')}, // \ 
+
         // \" (* || @asterlang:escaped-quote || @asterlang:escaped-escape)+ \"
-        {pattern: seq(char('"'), capture('data',any(or(wildchar(), tk('asterlang:escaped-quote'), tk('asterlang:escaped-escape')))), char('"')), result: 'asterlang:string'},
+        {pattern: seq(char('"'), capture('data',any(or(not(char('"')), is('escaped')))), char('"')), result: 'asterlang:string'},
 
-        // @asterlang:escaped-quote
-        {pattern: tk('escaped-quote'), result: (_,position) => new ASTER.CharToken('"', position)},
-        // @asterlang:escaped-escape
-        {pattern: tk('escaped-escape'), result: (_,position) => new ASTER.CharToken('\\', position)},
+        // \/ (* || #escaped).. \/ \i?
+        {pattern: seq(char('/'), capture('value', count(or(not(char('/')), is('escaped')))), char('/'), capture('i',optional(char('i')))), result: LogicToken.of('asterlang:re', function(t) {
+            const text = (t.getProp('value') as ASTER.Token[]).map(function(t) {
+                return t instanceof EscapedToken ? '\\' + t.getRawValue() : t.getRawValue();
+            }).join('')
+            return ASTER.TokenMatchers.re(text, {ignoreCase: getCapturedData(t, 'i').getRawValue() === 'i'});
+        })}, // /pattern/i
 
-        {pattern: wildchar('ws'), result: ()=>[]},
+        // ~
+        {pattern: wildchar('~'), result: ()=>[]},
+
+        // #escaped
+        {pattern: is('escaped'), result: ([t],position) => [
+            new ASTER.CharToken('\\', {start: position.start, length: 1}),
+            new ASTER.CharToken((t as EscapedToken).getRawValue(), {start: position.length + 1, length: 1})
+        ]},        
+
+        // \\*
+        {pattern: seq(char('\\'), capture('what', wildchar())), result: LogicToken.of('asterlang:char', function(t) {
+            return ASTER.TokenMatchers.char(getCapturedData(t, 'what').getRawValue())
+        })}, // \c
+
+        // \*
+        {pattern: char('*'), result: LogicToken.of('asterlang:wildchar-any', function() {
+            return ASTER.TokenMatchers.wildchar('*');
+        })}, // *
+        // \$
+        {pattern: char('$'), result: LogicToken.of('asterlang:wildchar-digit', function() {
+            return ASTER.TokenMatchers.wildchar('$');
+        })}, // $
+        // \~
+        {pattern: char('~'), result: LogicToken.of('asterlang:wildchar-digit', function() {
+            return ASTER.TokenMatchers.wildchar('~');
+        })}, // ~
 
         // \( #logic \)
         {pattern: seq(char('('), capture('value', is('logic')), char(')')), result: LogicToken.of('asterlang:group', function(t) {
@@ -377,24 +417,6 @@ namespace ASTERLang {
         {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
             return ASTER.TokenMatchers.seq((t.getChildren()[0] as LogicToken).reduce(), ...t.getChildren()[1].getChildren().map(c=>(c as LogicToken).reduce()));
         }), recursive: true}, // pattern1 pattern2
-
-        // \\*
-        {pattern: seq(char('\\'), capture('what', wildchar())), result: LogicToken.of('asterlang:char', function(t) {
-            return ASTER.TokenMatchers.char(getCapturedData(t, 'what').getRawValue())
-        })}, // \c
-
-        // \*\*
-        {pattern: seq(char('*'), char('*')), result: LogicToken.of('asterlang:wildtk', function() {
-            return ASTER.TokenMatchers.wildtk();
-        })}, // **
-        // \*
-        {pattern: char('*'), result: LogicToken.of('asterlang:wildchar-any', function() {
-            return ASTER.TokenMatchers.wildchar('*');
-        })}, // *
-        // \$
-        {pattern: char('$'), result: LogicToken.of('asterlang:wildchar-digit', function() {
-            return ASTER.TokenMatchers.wildchar('$');
-        })}, // $
 
         // /[a-z0-9_]+/i \: #logic
         {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
@@ -475,11 +497,7 @@ namespace ASTERLang {
         {pattern: seq(char('['), capture('what', IDENT), char(']')), result: LogicToken.of('asterlang:hasprop', function(t) {
             return ASTER.TokenMatchers.hasprop(getCapturedData(t, 'what').getRawValue());
         })}, // [prop]
-
-        // \/ *.. <<!\\ \/ \i?
-        {pattern: seq(char('/'), capture('value', count(or(wildchar(), wildtk()))), prev(not(char('\\'))), char('/'), capture('i',optional(char('i')))), result: LogicToken.of('asterlang:re', function(t) {
-            return ASTER.TokenMatchers.re(getCapturedData(t, 'value').getRawValue(), {ignoreCase: getCapturedData(t, 'i').getRawValue() === 'i'});
-        })} // /pattern/i
+        /**/
     ];
     export function expr(text: string): ASTER.TokenPattern {
         const tokens = ASTER.tokenize(text, GRAMMAR);
