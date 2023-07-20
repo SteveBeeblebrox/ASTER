@@ -1,5 +1,3 @@
-console.clear()
-
 const _checkloop = (function() {
   let n = 0;
   return (contents?: any) => {if(n++>15550) throw contents ?? 'Infinite loop terminated.'}
@@ -96,7 +94,7 @@ namespace ASTER {
         if(matches !== -1) {
           const matchedTokens = tokens.slice(i,i+matches);
           const position = {start: (matchedTokens[0]??tokens[i]).getStart(),length:matchedTokens.reduce((sum,token)=>sum+token.getLength(),0)};
-          const newTokens = typeof tokenizer.result === 'string' ? new Token(tokenizer.result,position,{children:matchedTokens}) : tokenizer.result(matchedTokens, position, captures);
+          const newTokens = typeof tokenizer.result === 'string' ? new Token(tokenizer.result,position,{children:matchedTokens,props:captures}) : tokenizer.result(matchedTokens, position, captures);
           tokens.splice(i,matches, ...(Array.isArray(newTokens) ? newTokens : [newTokens]));
           applied ||= true;
         }
@@ -161,6 +159,13 @@ namespace ASTER {
         matches
       }
     }
+    export function wildtk(): SingleTokenPattern {
+        return {
+        matches([token]) {
+          return matchSingle(!!token)
+        }
+      }
+    }
 
     export function seq(...matchers: TokenPattern[]): TokenPattern {
       return {
@@ -197,6 +202,10 @@ namespace ASTER {
 
     export function any(matcher: TokenPattern): TokenPattern {
       return count(matcher, {min: 0});
+    }
+
+    export function optional(matcher: TokenPattern): TokenPattern {
+      return count(matcher, {min: 0, max: 1});
     }
 
     export function or(...matchers: TokenPattern[]): TokenPattern
@@ -312,168 +321,185 @@ namespace ASTER {
   }
 }
 
-const {seq, char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re,is,lambda,any} = ASTER.TokenMatchers;
-//seq a + b + c
-//char
-//capture (?<name>...)
-//wildchar
-//count
-//tk
-//or
-//and
-//prev
-//next
-//not
-//hasprop
-//propeq
-//re
-
-
-const raw = String.raw;
-const WS = count(wildchar('ws'))
-const IDENT = re(raw`[a-z0-9_]+`, {ignoreCase: true})
-
-
-type LogicTokenReducer = (t: LogicToken) => ASTER.TokenPattern;
-class LogicToken extends ASTER.Token {
-    private constructor(name: string, position: ASTER.TokenPosition, args: ASTER.TokenArgs, private readonly reducer: LogicTokenReducer) {
-        super(name, position, args);
-    }
-    static of(name: string, reducer: LogicTokenReducer) {
-        return function(matches: ASTER.Token[] | undefined, position: ASTER.TokenPosition, captures: Map<string, ASTER.Token[] | null>) {
-            return new LogicToken(name, position, {children: matches, props: captures, tags: 'logic'}, reducer);
+namespace ASTERLang {
+    const {seq,char,capture,wildchar,count,tk,or,and,prev,next,not,hasprop,propeq,re,is,lambda,any,optional,wildtk} = ASTER.TokenMatchers;
+    const IDENT = re(String.raw`(?:[a-z][a-z0-9_\-]*:)?[a-z][a-z0-9_\-]*`, {ignoreCase: true})
+    type LogicTokenReducer = (t: LogicToken) => ASTER.TokenPattern;
+    class LogicToken extends ASTER.Token {
+        private constructor(name: string, position: ASTER.TokenPosition, args: ASTER.TokenArgs, private readonly reducer: LogicTokenReducer) {
+            super(name, position, args);
+        }
+        static of(name: string, reducer: LogicTokenReducer) {
+            return function(matches: ASTER.Token[] | undefined, position: ASTER.TokenPosition, captures: Map<string, ASTER.Token[] | null>) {
+                return new LogicToken(name, position, {children: matches, props: captures, tags: 'logic'}, reducer);
+            }
+        }
+        reduce(): ASTER.TokenPattern {
+            return this.reducer(this);
         }
     }
-    reduce(): ASTER.TokenPattern {
-        return this.reducer(this);
+
+    function getCapturedData(token: ASTER.Token, name: string) {
+        const tokens = token.getProp(name) as LogicToken[]
+        return {
+            getRawValue() {
+                return tokens.map(t => t?.getRawValue()).join('') ?? '';
+            },
+            reduce() {
+                return tokens[0].reduce()
+            },
+            tokens
+        }
+    }
+    const GRAMMAR: ASTER.Tokenizer[] = [
+        // \\\\
+        {pattern: seq(char('\\'), char('\\')), result: 'asterlang:escaped-escape'},
+
+        // \\\"
+        {pattern: seq(char('\\'), char('"')), result: 'asterlang:escaped-quote'},
+        // \" (* || @asterlang:escaped-quote || @asterlang:escaped-escape)+ \"
+        {pattern: seq(char('"'), capture('data',any(or(wildchar(), tk('asterlang:escaped-quote'), tk('asterlang:escaped-escape')))), char('"')), result: 'asterlang:string'},
+
+        // @asterlang:escaped-quote
+        {pattern: tk('escaped-quote'), result: (_,position) => new ASTER.CharToken('"', position)},
+        // @asterlang:escaped-escape
+        {pattern: tk('escaped-escape'), result: (_,position) => new ASTER.CharToken('\\', position)},
+
+        {pattern: wildchar('ws'), result: ()=>[]},
+
+        // \( #logic \)
+        {pattern: seq(char('('), capture('value', is('logic')), char(')')), result: LogicToken.of('asterlang:group', function(t) {
+            return getCapturedData(t, 'value').reduce();
+        }), recursive: true}, // (pattern)
+
+        // #logic #logic+
+        {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
+            return ASTER.TokenMatchers.seq((t.getChildren()[0] as LogicToken).reduce(), ...t.getChildren()[1].getChildren().map(c=>(c as LogicToken).reduce()));
+        }), recursive: true}, // pattern1 pattern2
+
+        // \\*
+        {pattern: seq(char('\\'), capture('what', wildchar())), result: LogicToken.of('asterlang:char', function(t) {
+            return ASTER.TokenMatchers.char(getCapturedData(t, 'what').getRawValue())
+        })}, // \c
+
+        // \*\*
+        {pattern: seq(char('*'), char('*')), result: LogicToken.of('asterlang:wildtk', function() {
+            return ASTER.TokenMatchers.wildtk();
+        })}, // **
+        // \*
+        {pattern: char('*'), result: LogicToken.of('asterlang:wildchar-any', function() {
+            return ASTER.TokenMatchers.wildchar('*');
+        })}, // *
+        // \$
+        {pattern: char('$'), result: LogicToken.of('asterlang:wildchar-digit', function() {
+            return ASTER.TokenMatchers.wildchar('$');
+        })}, // $
+
+        // /[a-z0-9_]+/i \: #logic
+        {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
+            return ASTER.TokenMatchers.capture(getCapturedData(t,'name').getRawValue(), getCapturedData(t, 'value').reduce());
+        }), recursive: true}, //name: pattern
+
+
+        // #logic \+
+        {pattern: seq(capture('value',is('logic')),char('+')), result: LogicToken.of('asterlang:any', function(t) {
+            return ASTER.TokenMatchers.any(getCapturedData(t, 'value').reduce());
+        }), recursive: true}, //#logic+
+
+        // #logic \?
+        {pattern: seq(capture('value',is('logic')),char('?')), result: LogicToken.of('asterlang:optional', function(t) {
+            return ASTER.TokenMatchers.optional(getCapturedData(t, 'value').reduce());
+        }), recursive: true}, //#logic?
+
+        // #logic $+ \.\. $+
+        {pattern: seq(capture('value', is('logic')), capture('min', any(wildchar('$'))), char('.'), char('.'), capture('max', any(wildchar('$')))), result: LogicToken.of('asterlang:count', function(t) {
+            const fix = (n: string | number): number | undefined => Number.isNaN(n=+(n || NaN)) ? void 0 : n;
+            const min = fix(getCapturedData(t, 'min').getRawValue());
+            const max = fix(getCapturedData(t, 'min').getRawValue());
+
+            return ASTER.TokenMatchers.count(getCapturedData(t,'value').reduce(), {min, max});
+        }), recursive: true}, // #logic 3..5
+
+        // \@/[a-z_]+/
+        {pattern: seq(char('@'), capture('what', IDENT)), result: LogicToken.of('asterlang:tk', function(t) {
+            return ASTER.TokenMatchers.tk(getCapturedData(t, 'what').getRawValue());
+        })}, // @name
+        // \#/[a-z_]+/
+        {pattern: seq(char('#'), capture('what', IDENT)), result: LogicToken.of('asterlang:is', function(t) {
+            return ASTER.TokenMatchers.is(getCapturedData(t, 'what').getRawValue());
+        })}, // #tag
+
+        // \!#logic
+        {pattern: seq(char('!'), capture('value',is('logic'))), result: LogicToken.of('asterlang:not', function(t) {
+            const value = getCapturedData(t, 'value').reduce();
+            return ASTER.TokenMatchers.not({matches(...args: any[]): -1 | 0 | 1 {
+                // @ts-expect-error
+                const t = value.matches(...args);
+                if(t < -1 || t > 1) throw new SyntaxError('Only results of -1, 0, or 1 can be negated');
+                return t as -1 | 0 | 1;
+            }});
+        }), recursive: true}, // !pattern
+
+        // #logic \|\| #logic
+        {pattern: seq(capture('lhs', is('logic')), char('|'), char('|'), capture('rhs',is('logic'))), result: LogicToken.of('asterlang:or', function(t) {
+            return ASTER.TokenMatchers.or(getCapturedData(t, 'lhs').reduce(), getCapturedData(t, 'rhs').reduce());
+        }), recursive: true},// LHS || RHS
+        // #logic \&\& #logic
+        {pattern: seq(capture('rhs', is('logic')), char('&'), char('&'), capture('rhs', is('logic'))), result: LogicToken.of('asterlang:and', function(t) {
+            return ASTER.TokenMatchers.and(getCapturedData(t, 'lhs').reduce(), getCapturedData(t, 'rhs').reduce());
+        }), recursive: true},// LHS && RHS
+
+        // \>\>#logic
+        {pattern: seq(char('>'), char('>'), capture('value', is('logic'))), result: LogicToken.of('asterlang:next', function(t) {
+            return ASTER.TokenMatchers.next(getCapturedData(t, 'value').reduce());
+        }), recursive: true},
+        // \<\<#logic
+        {pattern: seq(char('<'), char('<'), capture('value', is('logic'))), result: LogicToken.of('asterlang:prev', function(t) {
+            return ASTER.TokenMatchers.prev(getCapturedData(t, 'value').reduce());
+        }), recursive: true},
+
+        // \[ /[a-z0-9_]+/i \= (@string || $..) \]
+        {pattern: seq(char('['), capture('what', IDENT), char('='), capture('value', or(tk('asterlang:string'), count(wildchar('$')))), char(']')), result: LogicToken.of('asterlang:propeq', function(t) {
+            const valueToken = getCapturedData(t, 'value');
+            let value: string | number;
+            if(valueToken.tokens[0].getName() === 'asterlang:string') {
+                value = getCapturedData(valueToken.tokens[0], 'data').getRawValue();
+            } else {
+                value = +valueToken.getRawValue();
+            }
+            
+            return ASTER.TokenMatchers.propeq(getCapturedData(t, 'what').getRawValue(), value);
+        })}, // [prop=value]
+        // \[ /[a-z0-9_]+/i \]
+        {pattern: seq(char('['), capture('what', IDENT), char(']')), result: LogicToken.of('asterlang:hasprop', function(t) {
+            return ASTER.TokenMatchers.hasprop(getCapturedData(t, 'what').getRawValue());
+        })}, // [prop]
+
+        // \/ *.. <<!\\ \/ \i?
+        {pattern: seq(char('/'), capture('value', count(or(wildchar(), wildtk()))), prev(not(char('\\'))), char('/'), capture('i',optional(char('i')))), result: LogicToken.of('asterlang:re', function(t) {
+            return ASTER.TokenMatchers.re(getCapturedData(t, 'value').getRawValue(), {ignoreCase: getCapturedData(t, 'i').getRawValue() === 'i'});
+        })} // /pattern/i
+    ];
+    export function expr(text: string): ASTER.TokenPattern {
+        const tokens = ASTER.tokenize(text, GRAMMAR);
+        let currentToken: ASTER.Token | undefined;
+        let pos = 0;
+
+        function expect(pattern: ASTER.SingleTokenPattern) {
+            const t = tokens.shift();
+            if(t === undefined)
+                throw new Error(`Unexpected EOF at position ${pos + (currentToken ? currentToken.getLength() : 0)}`);
+            if(pattern.matches([t], new Map(), []) < 0)
+                throw new Error(`Unexpected token ${t.getName()} "${t.getRawValue()}" at position ${t.getStart()}.`);
+            currentToken = t;
+            pos = currentToken.getStart();
+        }
+
+        expect(tk('aster:start'));
+        expect(is('logic'));
+        const result = (currentToken as LogicToken).reduce();
+        expect(tk('aster:eof'));
+
+        return result;
     }
 }
-
-function getCapturedToken<T extends ASTER.Token>(token: ASTER.Token, name: string): T {
-    return token.getProp(name)
-}
-
-const ASTER_LANG_GRAMMAR: ASTER.Tokenizer[] = [
-    // \\\"
-    {pattern: seq(char('\\'), char('"')), result: 'asterlang:escaped-quote'},
-    // \" *0.. \"
-    {pattern: seq(char('"'), count(wildchar(),{min:0}), char('"')), result: 'asterlang:string'},
-
-    // @asterlang:escaped-quote
-    {pattern: tk('escaped-quote'), result: (_,position) => new ASTER.CharToken('"', position)},
-
-    {pattern: wildchar('ws'), result: ()=>[]},
-
-    // \( #logic \)
-    {pattern: seq(char('('), capture('value', is('logic')), char(')')), result: LogicToken.of('asterlang:group', function(t) {
-        return getCapturedToken<LogicToken>(t, 'value').reduce();
-    }), recursive: true}, // (pattern)
-
-    // #logic #logic?
-    {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq'), recursive: true}, // pattern1 pattern2
-
-    // \\*
-    {pattern: seq(char('\\'), capture('what', wildchar())), result: LogicToken.of('asterlang:char', function(t) {
-        return ASTER.TokenMatchers.char(getCapturedToken(t, 'what').getRawValue())
-    })}, // \c
-
-    // \*
-    {pattern: char('*'), result: LogicToken.of('asterlang:wildchar-any', function() {
-        return ASTER.TokenMatchers.wildchar('*');
-    })}, // *
-    // \$
-    {pattern: char('$'), result: LogicToken.of('asterlang:wildchar-digit', function() {
-        return ASTER.TokenMatchers.wildchar('$');
-    })}, // $
-
-    // /[a-z0-9_]+/i \: #logic
-    {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
-        return ASTER.TokenMatchers.capture(getCapturedToken(t,'name').getRawValue(), getCapturedToken<LogicToken>(t, 'value').reduce());
-    }), recursive: true}, //name: pattern
-
-    {pattern: seq(capture('value',is('logic')),char('?')), result: LogicToken.of('asterlang:any', function(t) {
-        return ASTER.TokenMatchers.any(getCapturedToken<LogicToken>(t, 'value').reduce());
-    }), recursive: true}, //#logic?
-
-    // #logic $.. \.\. $..
-    {pattern: seq(is('logic'), count(wildchar('$'), {min: 0}), char('.'), char('.'), count(wildchar('$'), {min: 0})), result: LogicToken.of('asterlang:count'), recursive: true}, // #logic 3..5
-
-    // \@/[a-z_]+/
-    {pattern: seq(char('@'), capture('what', IDENT)), result: LogicToken.of('asterlang:tk', function(t) {
-        return ASTER.TokenMatchers.tk(getCapturedToken(t, 'what').getRawValue());
-    })}, // @name
-    // \#/[a-z_]+/
-    {pattern: seq(char('#'), capture('what', IDENT)), result: LogicToken.of('asterlang:is', function(t) {
-        return ASTER.TokenMatchers.is(getCapturedToken(t, 'what').getRawValue());
-    })}, // #tag
-
-    // \!#logic
-    {pattern: seq(char('!'), capture('value',is('logic'))), result: LogicToken.of('asterlang:not', function(t) {
-        const value = getCapturedToken<LogicToken>(t, 'value').reduce();
-        return ASTER.TokenMatchers.not({matches(...args: any[]): -1 | 0 | 1 {
-            // @ts-expect-error
-            const t = value.matches(...args);
-            if(t < -1 || t > 1) throw new SyntaxError('Only results of -1, 0, or 1 can be negated');
-            return t as -1 | 0 | 1;
-        }});
-    }), recursive: true}, // !pattern
-
-    // #logic \|\| #logic
-    {pattern: seq(capture('lhs', is('logic')), char('|'), char('|'), capture('rhs',is('logic'))), result: LogicToken.of('asterlang:or', function(t) {
-        return ASTER.TokenMatchers.or(getCapturedToken<LogicToken>(t, 'lhs').reduce(), getCapturedToken<LogicToken>(t, 'rhs').reduce());
-    }), recursive: true},// LHS || RHS
-    // #logic \&\& #logic
-    {pattern: seq(capture('rhs', is('logic')), char('&'), char('&'), capture('rhs', is('logic'))), result: LogicToken.of('asterlang:and', function(t) {
-        return ASTER.TokenMatchers.and(getCapturedToken<LogicToken>(t, 'lhs').reduce(), getCapturedToken<LogicToken>(t, 'rhs').reduce());
-    }), recursive: true},// LHS && RHS
-
-    // \>\>#logic
-    {pattern: seq(char('>'), char('>'), capture('value', is('logic'))), result: LogicToken.of('asterlang:next', function(t) {
-        return ASTER.TokenMatchers.next(getCapturedToken<LogicToken>(t, 'value').reduce());
-    }), recursive: true},
-    // \<\<#logic
-    {pattern: seq(char('<'), char('<'), capture('value', is('logic'))), result: LogicToken.of('asterlang:prev', function(t) {
-        return ASTER.TokenMatchers.prev(getCapturedToken<LogicToken>(t, 'value').reduce());
-    }), recursive: true},
-
-    // \[ /[a-z0-9_]+/i \= (@string || $..) \]
-    {pattern: seq(char('['), IDENT, char('='), or(tk('asterlang:string'), count(wildchar('$'))), char(']')), result: LogicToken.of('asterlang:propeq')}, // [prop=value]
-    // \[ /[a-z0-9_]+/i \]
-    {pattern: seq(char('['), IDENT, char(']')), result: 'asterlang:hasprop'}, // [prop]
-
-    // \/ *.. <<!\\ \/ \i..1
-    {pattern: seq(char('/'), count(wildchar()), prev(not(char('\\'))), char('/'), count(char('i'), {min: 0, max: 1})), result: LogicToken.of('asterlang:re')} // /pattern/i
-];
-
-type ASTERBuiltinTokens = 'char' | `aster:${'start' | 'eof'}`
-
-type ASTERLangTokens = `asterlang:${
-    'string' | 'group' | 'seq' | 'char' | 'wildchar-any' | 'wildchar-digit' | 'capture' | 'any' | 'count' | 'tk' | 'is' | 'not' | 'or' | 'and' | 'next' | 'rev' | 'propeq' | 'hasprop' | 're' 
-}`
-
-function expr(text: string): ASTER.TokenPattern {
-    const tokens = ASTER.tokenize(text, ASTER_LANG_GRAMMAR);
-    let currentToken: ASTER.Token | undefined;
-    let pos = 0;
-
-    function expect(pattern: ASTER.SingleTokenPattern) {
-        const t = tokens.shift();
-        if(t === undefined)
-            throw new SyntaxError(`Expected EOF after position ${pos}`);
-        if(!pattern.matches([t], new Map(), []))
-            throw new SyntaxError(`Unexpected token ${t.getName()} at position ${t.getStart()}.`);
-        currentToken = t;
-        pos = currentToken.getStart();
-    }
-
-    expect(tk('aster:start'));
-    expect(is('logic'));
-    const result = (currentToken as LogicToken).reduce()
-    expect(tk('aster:eof'))
-
-    return result;
-}
-
-console.log(ASTER.tokenize(raw`
-#foo && #bar
-`, ASTER_LANG_GRAMMAR))
