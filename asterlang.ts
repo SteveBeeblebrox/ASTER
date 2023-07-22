@@ -468,7 +468,7 @@ namespace ASTERLang {
             return ASTER.TokenMatchers.or(getCapturedData(t, 'lhs').reduce(), getCapturedData(t, 'rhs').reduce());
         }), recursive: true},// LHS || RHS
         // #logic \&\& #logic
-        {pattern: seq(capture('rhs', is('logic')), char('&'), char('&'), capture('rhs', is('logic'))), result: LogicToken.of('asterlang:and', function(t) {
+        {pattern: seq(capture('lhs', is('logic')), char('&'), char('&'), capture('rhs', is('logic'))), result: LogicToken.of('asterlang:and', function(t) {
             return ASTER.TokenMatchers.and(getCapturedData(t, 'lhs').reduce(), getCapturedData(t, 'rhs').reduce());
         }), recursive: true},// LHS && RHS
 
