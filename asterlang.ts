@@ -415,7 +415,7 @@ namespace ASTERLang {
 
         // #logic #logic+
         {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
-            return ASTER.TokenMatchers.seq((t.getChildren()[0] as LogicToken).reduce(), ...t.getChildren()[1].getChildren().map(c=>(c as LogicToken).reduce()));
+            return ASTER.TokenMatchers.seq(...t.getChildren().map(c=>(c as LogicToken).reduce()));
         }), recursive: true}, // pattern1 pattern2
 
         // /[a-z0-9_]+/i \: #logic
