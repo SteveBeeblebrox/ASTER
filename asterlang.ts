@@ -59,7 +59,7 @@ namespace ASTER {
   }
   export class CharToken extends Token {
     constructor(private readonly value: string, position: TokenPosition, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
-      super('char', position, {tags, props})
+      super('CHAR', position, {tags, props})
     }
     public getValue() {
       return this.value;
@@ -70,7 +70,7 @@ namespace ASTER {
   }
   class SpecialToken extends Token {
     constructor(name: string, position: TokenPosition, {tags, props}: Omit<TokenArgs, 'children'> = {}) {
-      super('aster:'+name, position, {tags, props})
+      super(name, position, {tags, props})
     }
     public getRawValue() {
       return '';
@@ -78,7 +78,7 @@ namespace ASTER {
   }
   export function tokenize(text: string, tokenizers: Tokenizer[]): Token[] {
     // Split code points
-    const tokens = [new SpecialToken('start', {start: -1, length: 0}), ...[...text].map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('eof', {start: text.length, length: 0})];
+    const tokens = [new SpecialToken('SOF', {start: -1, length: 0}), ...[...text].map((value,i) => new CharToken(value, {start: i, length: value.length})),new SpecialToken('EOF', {start: text.length, length: 0})];
 
     function applyTokenizer(tokenizer: Tokenizer): boolean {
       let applied = false;
@@ -128,6 +128,28 @@ namespace ASTER {
         }
       }
     }
+    export function str(value: string): TokenPattern {
+        return {
+            matches(tokens) {
+                for(let i = 0; i < value.length; i++) {
+                    const token = tokens[i];
+                    if(!(token instanceof ASTER.CharToken) || token.getValue() !== value[i])
+                        return 0;
+                }
+                return value.length;
+            }
+        }
+    }
+    /*export function nev(matcher: TokenPattern): NonConsumingTokenPattern {
+        return {
+            matches(tokens, capture, previosTokens) {
+                if(matcher.matches(tokens, capture, previosTokens))
+                    throw new Error()
+
+                return -1;
+            }
+        }
+    }*/
     export function capture(name: string, matcher: TokenPattern): TokenPattern {
       return {
         matches(tokens, captures, previousTokens) {
@@ -506,10 +528,10 @@ namespace ASTERLang {
             pos = currentToken.getStart();
         }
 
-        expect(tk('aster:start'));
+        expect(tk('SOF'));
         expect(is('logic'));
         const result = (currentToken as LogicToken).reduce();
-        expect(tk('aster:eof'));
+        expect(tk('EOF'));
 
         return result;
     }
