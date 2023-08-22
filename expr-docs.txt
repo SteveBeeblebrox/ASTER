@@ -1,0 +1,40 @@
+Pattern                 Syntax
+=========================================
+Escaped Backslash       \\
+Escaped Quote           \"
+Escaped Slash           \/
+Escaped Whitespace      \<whitespace>
+
+String                  "text"
+
+Regex                   /pattern/
+Regex (Ignore Case)     /pattern/i
+
+Literal Character       \a
+                        \b
+                        etc...
+
+Wildchar                *
+Digit                   $
+Whitespace              ~
+
+Sequence                pattern1 pattern2
+Token                   @name
+Tag                     #name
+
+Not                     !pattern
+Or                      lhs || rhs
+And                     lhs && rhs
+
+Any [0,)                pattern+
+Optional [0,1]          pattern?
+Range [min,max]         pattern min..max
+
+Grouping                (pattern)
+Named Capture           name: pattern
+
+Lookahead               >>pattern
+Lookbehind              <<pattern
+
+Property Equality       [prop=value]
+Property Test           [prop]
