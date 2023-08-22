@@ -1,12 +1,12 @@
 ================ TABLE 1 ================
-Type                   Syntax
+Type                    Syntax
 =========================================
-Number                 [0-9]+
-Ident*                 [a-z][a-z0-9_\-]*
-String**               "text"
-Regex Pattern          An ECMA RegExp
-Property Value         Number OR String 
-Token Pattern          See TABLE 2
+Number                  [0-9]+
+Ident*                  [a-z][a-z0-9_\-]*
+String**                "text"
+Regex Pattern           An ECMA RegExp
+Property Value          Number OR String 
+Token Pattern           See TABLE 2
 
 
 ================ TABLE 2 ================
