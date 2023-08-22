@@ -385,7 +385,9 @@ namespace ASTERLang {
         {pattern: seq(char('\\'), wildchar('~')), result: EscapedToken.of('asterlang:escaped-ws')}, // \ 
 
         // \" (* || @asterlang:escaped-quote || @asterlang:escaped-escape)+ \"
-        {pattern: seq(char('"'), capture('data',any(or(not(char('"')), is('escaped')))), char('"')), result: 'asterlang:string'},
+        {pattern: seq(char('"'), capture('data',any(or(not(char('"')), is('escaped')))), char('"')), result: LogicToken.of('asterlang:string', function(t) {
+            return ASTER.TokenMatchers.str(getCapturedData(t, 'data').getRawValue())
+        })},
 
         // \/ (* || #escaped).. \/ \i?
         {pattern: seq(char('/'), capture('value', count(or(not(char('/')), is('escaped')))), char('/'), capture('i',optional(char('i')))), result: LogicToken.of('asterlang:re', function(t) {
