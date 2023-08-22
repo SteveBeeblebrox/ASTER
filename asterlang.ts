@@ -1,8 +1,3 @@
-const _checkloop = (function() {
-  let n = 0;
-  return (contents?: any) => {if(n++>15550) throw new Error(contents ?? 'Infinite loop terminated.')}
-})();
-
 namespace ASTER {
   namespace Util {
     export function splitGraphemes(text: string) {
@@ -88,7 +83,6 @@ namespace ASTER {
     function applyTokenizer(tokenizer: Tokenizer): boolean {
       let applied = false;
       for(let i = 0; i < tokens.length; i++) {
-        _checkloop('Infinite loop applying tokenizer');
         const captures = new Map();
         const matches = tokenizer.pattern.matches(tokens.slice(i),captures,tokens.slice(0,i));
         if(matches !== -1) {
@@ -110,7 +104,6 @@ namespace ASTER {
 
     let mutated;
     do {
-      _checkloop()
       mutated = false;
       for(const tokenizer of recursiveTokenizers) mutated ||= applyTokenizer(tokenizer);
     } while(mutated);
@@ -179,7 +172,6 @@ namespace ASTER {
         matches(tokens,captures,previousTokens) {
           let numCountMatches = 0, matchedTokenCount = 0;
           while(max === -1 || numCountMatches <= max) {
-            _checkloop()
             const matches = matcher.matches(tokens.slice(matchedTokenCount),captures,[...previousTokens, ...tokens.slice(0, matchedTokenCount)]);
             if(matches === -1)
               break;
