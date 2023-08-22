@@ -45,12 +45,13 @@ Range [min,max]         pattern min..max
 Grouping                (pattern)
 Named Capture           name: pattern
 
-
-*Recommend format, exact syntax is looser
-** Strings are valid as a Token Pattern and
-as a Property Value
 Lookahead               >>pattern
 Lookbehind              <<pattern
 
 Property Equality       [prop=value]
 Property Test           [prop]
+
+
+*Recommend format, exact syntax is looser
+** Strings are valid as a Token Pattern and
+as a Property Value
