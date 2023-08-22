@@ -1,3 +1,15 @@
+================ TABLE 1 ================
+Type                   Syntax
+=========================================
+Number                 [0-9]+
+Ident*                 [a-z][a-z0-9_\-]*
+String**               "text"
+Regex Pattern          An ECMA RegExp
+Property Value         Number OR String 
+Token Pattern          See TABLE 2
+
+
+================ TABLE 2 ================
 Pattern                 Syntax
 =========================================
 Escaped Backslash       \\
@@ -5,7 +17,7 @@ Escaped Quote           \"
 Escaped Slash           \/
 Escaped Whitespace      \<whitespace>
 
-String                  "text"
+String**                "text"
 
 Regex                   /pattern/
 Regex (Ignore Case)     /pattern/i
@@ -33,6 +45,10 @@ Range [min,max]         pattern min..max
 Grouping                (pattern)
 Named Capture           name: pattern
 
+
+*Recommend format, exact syntax is looser
+** Strings are valid as a Token Pattern and
+as a Property Value
 Lookahead               >>pattern
 Lookbehind              <<pattern
 
