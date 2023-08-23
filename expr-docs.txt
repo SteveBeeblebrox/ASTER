@@ -41,6 +41,9 @@ And                     lhs && rhs
 Any [0,)                pattern+
 Optional [0,1]          pattern?
 Range [min,max]         pattern min..max
+Range [1,max]           pattern ..max
+Range [min,)            pattern min..
+Range [1,)              pattern ..
 
 Grouping                (pattern)
 Named Capture           name: pattern
