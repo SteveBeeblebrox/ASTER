@@ -429,11 +429,6 @@ namespace ASTERLang {
             return getCapturedData(t, 'value').reduce();
         }), recursive: true}, // (pattern)
 
-        // #logic #logic+
-        {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
-            return ASTER.TokenMatchers.seq(...t.getChildren().map(c=>(c as LogicToken).reduce()));
-        }), recursive: true}, // pattern1 pattern2
-
         // /[a-z0-9_]+/i \: #logic
         {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
             return ASTER.TokenMatchers.capture(getCapturedData(t,'name').getRawValue(), getCapturedData(t, 'value').reduce());
@@ -513,6 +508,11 @@ namespace ASTERLang {
         {pattern: seq(char('['), capture('what', IDENT), char(']')), result: LogicToken.of('asterlang:hasprop', function(t) {
             return ASTER.TokenMatchers.hasprop(getCapturedData(t, 'what').getRawValue());
         })}, // [prop]
+
+        // #logic #logic+
+        {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
+            return ASTER.TokenMatchers.seq(...t.getChildren().map(c=>(c as LogicToken).reduce()));
+        }), recursive: true}, // pattern1 pattern2
         /**/
     ];
     export function expr(text: string): ASTER.TokenPattern {
