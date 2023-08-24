@@ -603,7 +603,7 @@ namespace ASTERUtils {
         reduce(state: State): Target;
     }
 
-    export class Parser<Target, State extends object> {
+    export class Parser<GrammarType, Target, State> {
         private readonly DynamicToken = class DynamicToken extends ASTER.Token {
             private constructor(name: string, position: ASTER.TokenPosition, args: ASTER.TokenArgs, private readonly reducer: (t: DynamicToken, state: State) => Target) {
                 super(name, position, args);
@@ -618,9 +618,9 @@ namespace ASTERUtils {
             }
         }
         private readonly tokenizers: ASTER.Tokenizer[];
-        constructor(grammar: object) {
+        constructor(grammar: GrammarType & {[k in Exclude<keyof GrammarType,`_${string}`>]: (token: ASTER.Token, state: State)=>Target}) {
             const proto = Object.getPrototypeOf(grammar);
-            this.tokenizers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor').flatMap(name => {
+            this.tokenizers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' || name.startsWith('_')).flatMap(name => {
                 const config: TokenMethodConfig = Reflect.get(proto[name], asterConfig);
                 if(!config || !config.syntax)
                     return [];
@@ -717,18 +717,21 @@ class CalculatorGrammar {
   @syntax `(lhs: #expr) ~+ (op: \+ || \-) ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
-  addsub(token: ASTER.Token, state: Map<string,number>) {
+  addsub(token: ASTER.Token, state: Map<string,number>): number {
     if(token.getProp('op')[0].getRawValue() === '-')
       return token.getProp('lhs')[0].reduce(state) - token.getProp('rhs')[0].reduce(state);
     else
       return token.getProp('lhs')[0].reduce(state) + token.getProp('rhs')[0].reduce(state);
   }
 
+  _foo() {
+
+  }
 }
 
 console.log;
 
-const parser = new Parser<number,Map<string,number>>(new CalculatorGrammar());
+const parser = new Parser<CalculatorGrammar,number,Map<string,number>>(new CalculatorGrammar());
 console.log('built parser')
 //console.log(ASTERLang.expr(String.raw`\a+`).matches([],new Map(), []) <= 0)
 // console.log(parser.parse('const A: L12 = 128;', {}))
