@@ -419,12 +419,6 @@ namespace ASTERLang {
             return getCapturedData(t, 'value').reduce();
         }), recursive: true}, // (pattern)
 
-        // /[a-z0-9_]+/i \: #logic
-        {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
-            return ASTER.TokenMatchers.capture(getCapturedData(t,'name').getRawValue(), getCapturedData(t, 'value').reduce());
-        }), recursive: true}, //name: pattern
-
-
         // #logic \+
         {pattern: seq(capture('value',is('logic')),char('+')), result: LogicToken.of('asterlang:any', function(t) {
             return ASTER.TokenMatchers.any(getCapturedData(t, 'value').reduce());
@@ -498,6 +492,11 @@ namespace ASTERLang {
         {pattern: seq(char('['), capture('what', IDENT), char(']')), result: LogicToken.of('asterlang:hasprop', function(t) {
             return ASTER.TokenMatchers.hasprop(getCapturedData(t, 'what').getRawValue());
         })}, // [prop]
+
+        // /[a-z0-9_]+/i \: #logic
+        {pattern: seq(capture('name',IDENT), char(':'), capture('value',is('logic'))), result: LogicToken.of('asterlang:capture', function(t) {
+            return ASTER.TokenMatchers.capture(getCapturedData(t,'name').getRawValue(), getCapturedData(t, 'value').reduce());
+        }), recursive: true}, //name: pattern
 
         // #logic #logic+
         {pattern: seq(is('logic'), count(is('logic'))), result: LogicToken.of('asterlang:seq', function(t) {
@@ -698,7 +697,7 @@ class CalculatorGrammar {
     return token.getProp('lhs')[0].reduce() ** token.getProp('rhs')[0].reduce(); 
   }
 
-  @syntax `(lhs: #expr) ~+ (op: (\* || \/)) ~+ (rhs: #expr)`
+  @syntax `(lhs: #expr) ~+ (op: \* || \/) ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
   multdiv(token: ASTER.Token) {
@@ -708,7 +707,7 @@ class CalculatorGrammar {
       return token.getProp('lhs')[0].reduce() * token.getProp('rhs')[0].reduce();  
   }
 
-  @syntax `(lhs: #expr) ~+ (op: (\+ || \-)) ~+ (rhs: #expr)`
+  @syntax `(lhs: #expr) ~+ (op: \+ || \-) ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
   addsub(token: ASTER.Token) {
