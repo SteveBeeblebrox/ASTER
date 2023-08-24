@@ -620,10 +620,10 @@ namespace ASTERUtils {
         private readonly tokenizers: ASTER.Tokenizer[];
         constructor(grammar: GrammarType & {[k in Exclude<keyof GrammarType,`_${string}`>]: (token: ASTER.Token, state: State)=>Target}) {
             const proto = Object.getPrototypeOf(grammar);
-            this.tokenizers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' || name.startsWith('_')).flatMap(name => {
+            this.tokenizers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor' && !name.startsWith('_')).flatMap(name => {
                 const config: TokenMethodConfig = Reflect.get(proto[name], asterConfig);
                 if(!config || !config.syntax)
-                    return [];
+                    throw new Error(`Pattern ${name} needs a syntax configuration`);
 
                 const pattern = ASTERLang.expr(config.syntax);
 
@@ -722,10 +722,6 @@ class CalculatorGrammar {
       return token.getProp('lhs')[0].reduce(state) - token.getProp('rhs')[0].reduce(state);
     else
       return token.getProp('lhs')[0].reduce(state) + token.getProp('rhs')[0].reduce(state);
-  }
-
-  _foo() {
-
   }
 }
 
