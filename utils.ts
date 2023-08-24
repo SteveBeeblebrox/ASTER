@@ -117,7 +117,7 @@ namespace ASTER {
     export function tk(value: string): SingleTokenPattern {
       return {
         matches([token]) {
-          return matchSingle(token.getName() === value)
+          return matchSingle(token && token.getName() === value)
         }
       }
     }
@@ -576,9 +576,9 @@ namespace ASTERUtils {
         const entry = getRegistryEntry(value, context);
         if(tag) {
             if(Array.isArray(tag)) {
-                entry.syntax = String.raw(tag as TemplateStringsArray, values);
+                entry.tags.push(String.raw(tag as TemplateStringsArray, values));
             } else {
-                entry.syntax = tag as string;
+                entry.tags.push(tag as string);
             }
         }
     });
@@ -622,7 +622,7 @@ namespace ASTERUtils {
             const proto = Object.getPrototypeOf(grammar);
             this.tokenizers = Object.getOwnPropertyNames(proto).filter(name => name !== 'constructor').flatMap(name => {
                 const config: TokenMethodConfig = Reflect.get(proto[name], asterConfig);
-                if(!config.syntax)
+                if(!config || !config.syntax)
                     return [];
 
                 const pattern = ASTERLang.expr(config.syntax);
@@ -639,7 +639,9 @@ namespace ASTERUtils {
 
         }
         parse(text: string, initialState: State): Target {
-            return ASTER.tokenize(text, this.tokenizers)
+            const tokens = ASTER.tokenize(text, this.tokenizers);
+            const [SOF, t, EOF] = tokens;
+            return (t).reduce()
         }
     }
 }
@@ -653,8 +655,11 @@ const r = String.raw
 type State = {}
 
 class MyGrammar {
-  @syntax `"L12"||"U20"`
-  type() {}
+  @syntax `/[A-Z_][A-Z0-9_]*/`
+  ident() {}
+
+  @syntax `@ident ~+ \: ~+ @ident`
+  type_annotation() {}
 
   @syntax(r`$..`)
   int(t: ASTER.Token, s: State) {}
@@ -662,13 +667,63 @@ class MyGrammar {
   @syntax(r`"const"`)
   const_kwd() {}
 
-  @syntax `@const_kwd ~.. /[A-Z]+/ \: @type \= @int \;`
+  @syntax `@const_kwd ~.. @type_annotation ~+ \= ~+ @int \;`
   const_expr() {}
+}
+
+class CalculatorGrammar {
+  @syntax `value: ($..)`
+  @tag `expr`
+  int(token: ASTER.Token) {
+    return +token.getRawValue()
+  }
+
+  @syntax `value: (@int\.@int)`
+  @tag `expr`
+  decimal(token: ASTER.Token) {
+    return +token.getRawValue()
+  }
+
+  @syntax `\( (value: #expr) \)`
+  @tag `expr`
+  @recursive
+  group(token: ASTER.Token) {
+    return token.getProp('value')[0].reduce(); 
+  }
+
+  @syntax `(lhs: #expr) ~+ \^ ~+ (rhs: #expr)`
+  @tag `expr`
+  @recursive
+  pow(token: ASTER.Token) {
+    return token.getProp('lhs')[0].reduce() ** token.getProp('rhs')[0].reduce(); 
+  }
+
+  @syntax `(lhs: #expr) ~+ (op: (\* || \/)) ~+ (rhs: #expr)`
+  @tag `expr`
+  @recursive
+  multdiv(token: ASTER.Token) {
+    if(token.getProp('op')[0].getRawValue() === '/')
+      return token.getProp('lhs')[0].reduce() / token.getProp('rhs')[0].reduce(); 
+    else
+      return token.getProp('lhs')[0].reduce() * token.getProp('rhs')[0].reduce();  
+  }
+
+  @syntax `(lhs: #expr) ~+ (op: (\+ || \-)) ~+ (rhs: #expr)`
+  @tag `expr`
+  @recursive
+  addsub(token: ASTER.Token) {
+    if(token.getProp('op')[0].getRawValue() === '-')
+      return token.getProp('lhs')[0].reduce() - token.getProp('rhs')[0].reduce(); 
+    else
+      return token.getProp('lhs')[0].reduce() + token.getProp('rhs')[0].reduce(); 
+  }
+
 }
 
 console.log;
 
-const parser = new Parser<string,State>(new MyGrammar());
+const parser = new Parser<number,State>(new CalculatorGrammar());
 console.log('built parser')
-console.log(ASTERLang.expr(String.raw`\a+`).matches([],new Map(), []) <= 0)
-console.log(parser.parse('const A: L12 = 128;', {}))
+//console.log(ASTERLang.expr(String.raw`\a+`).matches([],new Map(), []) <= 0)
+// console.log(parser.parse('const A: L12 = 128;', {}))
+console.log(parser.parse('1 * 1.5 + 2-1', {}))
