@@ -640,9 +640,8 @@ namespace ASTERUtils {
         }
         parse(text: string, initialState: State): Target {
             const tokens = ASTER.tokenize(text, this.tokenizers);
-            console.log(tokens)
             const [SOF, t, EOF] = tokens;
-            return (t).reduce()
+            return (t).reduce(initialState)
         }
     }
 }
@@ -673,58 +672,64 @@ class MyGrammar {
 }
 
 class CalculatorGrammar {
-  @syntax `value: ($..)`
+  @syntax `/[a-z_]+/i`
   @tag `expr`
-  int(token: ASTER.Token) {
+  variable(token: ASTER.Token, state: Map<string,number>) {
+    return state.get(token.getRawValue().toLowerCase()) ?? 0;
+  }
+
+  @syntax `$..`
+  @tag `expr`
+  int(token: ASTER.Token, state: Map<string,number>) {
     return +token.getRawValue()
   }
 
-  @syntax `value: (@int\.@int)`
+  @syntax `@int\.@int`
   @tag `expr`
-  decimal(token: ASTER.Token) {
+  decimal(token: ASTER.Token, state: Map<string,number>) {
     return +token.getRawValue()
   }
 
   @syntax `\( (value: #expr) \)`
   @tag `expr`
   @recursive
-  group(token: ASTER.Token) {
-    return token.getProp('value')[0].reduce(); 
+  group(token: ASTER.Token, state: Map<string,number>) {
+    return token.getProp('value')[0].reduce(state); 
   }
 
   @syntax `(lhs: #expr) ~+ \^ ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
-  pow(token: ASTER.Token) {
-    return token.getProp('lhs')[0].reduce() ** token.getProp('rhs')[0].reduce(); 
+  pow(token: ASTER.Token, state: Map<string,number>) {
+    return token.getProp('lhs')[0].reduce() ** token.getProp('rhs')[0].reduce(state); 
   }
 
   @syntax `(lhs: #expr) ~+ (op: \* || \/) ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
-  multdiv(token: ASTER.Token) {
+  multdiv(token: ASTER.Token, state: Map<string,number>) {
     if(token.getProp('op')[0].getRawValue() === '/')
-      return token.getProp('lhs')[0].reduce() / token.getProp('rhs')[0].reduce(); 
+      return token.getProp('lhs')[0].reduce(state) / token.getProp('rhs')[0].reduce(state);
     else
-      return token.getProp('lhs')[0].reduce() * token.getProp('rhs')[0].reduce();  
+      return token.getProp('lhs')[0].reduce(state) * token.getProp('rhs')[0].reduce(state);
   }
 
   @syntax `(lhs: #expr) ~+ (op: \+ || \-) ~+ (rhs: #expr)`
   @tag `expr`
   @recursive
-  addsub(token: ASTER.Token) {
+  addsub(token: ASTER.Token, state: Map<string,number>) {
     if(token.getProp('op')[0].getRawValue() === '-')
-      return token.getProp('lhs')[0].reduce() - token.getProp('rhs')[0].reduce(); 
+      return token.getProp('lhs')[0].reduce(state) - token.getProp('rhs')[0].reduce(state);
     else
-      return token.getProp('lhs')[0].reduce() + token.getProp('rhs')[0].reduce(); 
+      return token.getProp('lhs')[0].reduce(state) + token.getProp('rhs')[0].reduce(state);
   }
 
 }
 
 console.log;
 
-const parser = new Parser<number,State>(new CalculatorGrammar());
+const parser = new Parser<number,Map<string,number>>(new CalculatorGrammar());
 console.log('built parser')
 //console.log(ASTERLang.expr(String.raw`\a+`).matches([],new Map(), []) <= 0)
 // console.log(parser.parse('const A: L12 = 128;', {}))
-console.log(parser.parse('1/2*5+1', {}))
+console.log(parser.parse('1/2*5+1+pi*2', new Map(Object.entries({pi: Math.PI}))))
