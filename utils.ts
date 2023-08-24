@@ -91,6 +91,7 @@ namespace ASTER {
           const newTokens = typeof tokenizer.result === 'string' ? new Token(tokenizer.result,position,{children:matchedTokens,props:captures}) : tokenizer.result(matchedTokens, position, captures);
           tokens.splice(i,matches, ...(Array.isArray(newTokens) ? newTokens : [newTokens]));
           applied ||= true;
+          i--;
         }
       }
       return applied;
@@ -639,6 +640,7 @@ namespace ASTERUtils {
         }
         parse(text: string, initialState: State): Target {
             const tokens = ASTER.tokenize(text, this.tokenizers);
+            console.log(tokens)
             const [SOF, t, EOF] = tokens;
             return (t).reduce()
         }
@@ -725,4 +727,4 @@ const parser = new Parser<number,State>(new CalculatorGrammar());
 console.log('built parser')
 //console.log(ASTERLang.expr(String.raw`\a+`).matches([],new Map(), []) <= 0)
 // console.log(parser.parse('const A: L12 = 128;', {}))
-console.log(parser.parse('1 * 1.5 + 2-1', {}))
+console.log(parser.parse('1/2*5+1', {}))
