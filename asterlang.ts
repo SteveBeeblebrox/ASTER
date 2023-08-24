@@ -134,22 +134,12 @@ namespace ASTER {
                 for(let i = 0; i < value.length; i++) {
                     const token = tokens[i];
                     if(!(token instanceof ASTER.CharToken) || token.getValue() !== value[i])
-                        return 0;
+                        return -1;
                 }
                 return value.length;
             }
         }
     }
-    /*export function nev(matcher: TokenPattern): NonConsumingTokenPattern {
-        return {
-            matches(tokens, capture, previosTokens) {
-                if(matcher.matches(tokens, capture, previosTokens))
-                    throw new Error()
-
-                return -1;
-            }
-        }
-    }*/
     export function capture(name: string, matcher: TokenPattern): TokenPattern {
       return {
         matches(tokens, captures, previousTokens) {
