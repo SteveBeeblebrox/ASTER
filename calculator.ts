@@ -27,7 +27,7 @@ class CalculatorGrammar {
 		return +token.getRawValue()
 	}
 
-	@syntax `<<(\* || \/ || \+ || \- || \^) ~+ \- ~+ value: #negatable`
+	@syntax `<<(\* || \/ || \+ || \- || \^ || @SOF || \= || \( || \|) ~+ \- ~+ value: #negatable`
 	@tag `expr`
 	negative(token: ASTER.Token, state: Map<string, number>) {
 		return -token.getProp('value')[0].reduce(state)
@@ -53,7 +53,7 @@ class CalculatorGrammar {
 	@tag `expr`
 	@recursive
 	pow(token: ASTER.Token, state: Map<string, number>) {
-		return token.getProp('lhs')[0].reduce() ** token.getProp('rhs')[0].reduce(state);
+		return token.getProp('lhs')[0].reduce(state) ** token.getProp('rhs')[0].reduce(state);
 	}
 
 	@syntax `(lhs: #expr) ~+ (op: \* || \/) ~+ (rhs: #expr)`
@@ -75,25 +75,38 @@ class CalculatorGrammar {
 		else
 			return token.getProp('lhs')[0].reduce(state) + token.getProp('rhs')[0].reduce(state);
 	}
+
+	@syntax`(name: @variable) ~+ \= ~+ (value: #expr)`
+	@tag `expr`
+	@recursive
+	assignment(token: ASTER.Token, state: Map<string, number>): number {
+		const name = token.getProp('name')[0].getRawValue().toLowerCase();
+		state.set(name, token.getProp('value')[0].reduce(state))
+		return state.get(name)!;
+	}
 }
 
 namespace Calculator {
 	const parser = new Parser<CalculatorGrammar, number, Map<string, number>>(new CalculatorGrammar());
-	export function evaluate(text: string, variables: { [key: string]: number }): number {
-		return parser.parse(text, new Map(Object.entries(Object.assign(variables, { pi: Math.PI, e: Math.E }))));
+	export function evaluate(text: string, variables: { [key: string]: number }): {value: number, state: Map<string,number>} {
+		const state = new Map(Object.entries(Object.assign(variables, { pi: Math.PI, e: Math.E })));
+		return {value: parser.parse(text, state), state};
 	}
 }
 
 console.log('ASTER Calculator Demo');
 
 (async function() {
+	let state = new Map<string,number>();
 	process.stdout.write('> ');
 	for await (const line of createInterface({ input: process.stdin })) {
 		if(line === 'q') {
 			return;
 		} else if(line.trim()) {
 			try {
-				console.log(Calculator.evaluate(line, { foobar: 117 }));
+				const result = Calculator.evaluate(line, Object.fromEntries(state.entries()));
+				state = result.state;
+				console.log(result.value);
 			} catch(e) {
 				console.error(e);
 			}
