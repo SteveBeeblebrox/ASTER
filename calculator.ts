@@ -3,6 +3,8 @@
 
 const { syntax, tag, tags, recursive, Parser } = ASTERUtils;
 
+import { createInterface } from "node:readline"
+
 class CalculatorGrammar {
 	@syntax `/[a-z_]+/i`
 	@tag `expr`
@@ -82,6 +84,20 @@ namespace Calculator {
 	}
 }
 
-console.log('Built calculator')
+console.log('ASTER Calculator Demo');
 
-console.log(Calculator.evaluate('|1/2*5+1+pi*-2| + -foobar', { foobar: 117 }))
+(async function() {
+	process.stdout.write('> ');
+	for await (const line of createInterface({ input: process.stdin })) {
+		if(line === 'q') {
+			return;
+		} else if(line.trim()) {
+			try {
+				console.log(Calculator.evaluate(line, { foobar: 117 }));
+			} catch(e) {
+				console.error(e);
+			}
+		}
+		process.stdout.write('> ');
+	}
+})();
