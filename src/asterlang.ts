@@ -217,6 +217,14 @@ namespace ASTERLang {
 			})
 		}, // [prop]
 
+		// \{ @string \}
+		{
+			pattern: seq(char('{'), capture('value', tk('asterlang:string')), char('}')), result: LogicToken.of('asterlang:raweq', function (t) {
+				const valueToken = getCapturedData(t, 'value');
+				return ASTER.PatternBuilders.raweq(getCapturedData(valueToken.tokens[0], 'data').getRawValue());
+			})
+		}, // {"text"}
+
 		// /[a-z0-9_]+/i \: #logic
 		{
 			pattern: seq(capture('name', IDENT), char(':'), capture('value', is('logic'))), result: LogicToken.of('asterlang:capture', function (t) {
