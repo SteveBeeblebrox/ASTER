@@ -131,6 +131,13 @@ namespace ASTER {
 				}
 			}
 		}
+		export function raweq(value: string): SingleTokenPattern {
+			return {
+				matches([token]) {
+					return matchSingle(token.getRawValue() === value);
+				}
+			}
+		}
 		export function str(value: string): TokenPattern {
 			return {
 				matches(tokens) {
