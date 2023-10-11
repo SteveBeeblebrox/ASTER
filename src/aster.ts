@@ -134,7 +134,7 @@ namespace ASTER {
 		export function raweq(value: string): SingleTokenPattern {
 			return {
 				matches([token]) {
-					return matchSingle(token.getRawValue() === value);
+					return matchSingle(token && token.getRawValue() === value);
 				}
 			}
 		}
