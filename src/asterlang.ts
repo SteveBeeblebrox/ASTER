@@ -225,6 +225,13 @@ namespace ASTERLang {
 			})
 		}, // {"text"}
 
+		// @tk @raweq
+		{
+			pattern: seq(capture('name', tk('asterlang:tk')), capture('raw', tk('asterlang:raweq'))), result: LogicToken.of('asterlang:tkraweq', function(t) {
+				return ASTER.PatternBuilders.and(getCapturedData(t, 'name').reduce(), getCapturedData(t, 'raw').reduce());
+			})
+		} // @name{"text"} (special compound case)
+
 		// /[a-z0-9_]+/i \: #logic
 		{
 			pattern: seq(capture('name', IDENT), char(':'), capture('value', is('logic'))), result: LogicToken.of('asterlang:capture', function (t) {
