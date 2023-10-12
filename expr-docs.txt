@@ -34,6 +34,8 @@ Sequence                pattern1 pattern2
 Token                   @name
 Tag                     #name
 
+Raw Token Text***       {string}
+
 Not                     !pattern
 Or                      lhs || rhs
 And                     lhs && rhs
@@ -55,6 +57,7 @@ Property Equality       [prop=value]
 Property Test           [prop]
 
 
-*Recommend format, exact syntax is looser
+* Recommend format, exact syntax is looser
 ** Strings are valid as a Token Pattern and
 as a Property Value
+*** As a special case, @name {"text"} has an implicit And and is equivalent to @name && {"text"}
